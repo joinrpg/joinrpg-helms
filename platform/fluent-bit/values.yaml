@@ -1,6 +1,14 @@
 # Values подчарта fluent/fluent-bit лежат под ключом fluent-bit.
 # Релиз: fluent-bit, namespace: infra. Порядок установки — в README.md.
 fluent-bit:
+  # Namespace, логи контейнеров которых отправляются в Логи (группа k8s/<namespace>).
+  # Добавить или убрать namespace — правка этого списка и helm upgrade.
+  # Namespace, которого ещё нет в кластере, можно указывать заранее: логи пойдут, когда появятся поды.
+  namespaces:
+    - kogda-dev
+    - kogda-prod
+    - larp-dictionary
+
   kind: DaemonSet
 
   # Тестовый под чарта (busybox:latest) не нужен
@@ -38,12 +46,13 @@ fluent-bit:
       readOnly: true
 
   config:
-    # Собираем только перечисленные namespace. Имя файла: <pod>_<namespace>_<container>-<id>.log.
-    # Новый namespace — ещё один путь через запятую.
+    # Собираем только namespace из списка namespaces выше. Имя файла: <pod>_<namespace>_<container>-<id>.log.
+    # Чарт отрисовывает inputs через tpl, поэтому .Values здесь — values подчарта.
     inputs: |
+      {{- if not .Values.namespaces }}{{ fail "fluent-bit.namespaces: список namespace пуст" }}{{ end -}}
       [INPUT]
           Name tail
-          Path /var/log/containers/*_kogda-dev_*.log,/var/log/containers/*_kogda-prod_*.log,/var/log/containers/*_larp-dictionary_*.log
+          Path {{ range $i, $ns := .Values.namespaces }}{{ if $i }},{{ end }}/var/log/containers/*_{{ required "fluent-bit.namespaces: пустое имя namespace" $ns }}_*.log{{ end }}
           multiline.parser cri
           Tag kube.*
           DB /var/log/fluent-bit-kube.db

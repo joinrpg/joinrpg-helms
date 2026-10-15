@@ -9,7 +9,7 @@
 | Релиз | `fluent-bit` |
 | Namespace | `infra` |
 | Вид | DaemonSet — по поду на каждой ноде |
-| Какие логи | stdout/stderr контейнеров в namespace `kogda-dev`, `kogda-prod`, `larp-dictionary` |
+| Какие логи | stdout/stderr контейнеров в namespace из списка `fluent-bit.namespaces` в [`values.yaml`](values.yaml) |
 | Куда | сервис Логи, пул `ru-6`, API `ru-6.logs.selcloud.ru` |
 | Группа логов | `k8s/<namespace>` (создаётся автоматически) |
 | Поток | `<pod>.<container>` |
@@ -73,7 +73,7 @@ aws logs describe-log-groups --endpoint-url https://ru-6.logs.selcloud.ru --regi
 
 ## Как добавить namespace
 
-В `values.yaml`, `config.inputs`, в `Path` дописать через запятую `/var/log/containers/*_<namespace>_*.log` и выполнить `helm upgrade` (раздел выше). Группа `k8s/<namespace>` создастся сама при первой записи.
+Дописать namespace в список `fluent-bit.namespaces` в начале [`values.yaml`](values.yaml) и выполнить `helm upgrade` (раздел выше). Из списка собирается `Path` входа `tail` в `config.inputs`, руками его не править. Группа `k8s/<namespace>` создастся сама при первой записи. Namespace, которого ещё нет в кластере, можно указать заранее — логи пойдут, когда в нём появятся поды. Пустой список или пустое имя — ошибка рендера.
 
 ## Что нужно знать
 
