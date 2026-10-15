@@ -8,6 +8,8 @@ fluent-bit:
     - kogda-dev
     - kogda-prod
     - larp-dictionary
+    - joinrpg-dev
+    - joinrpg-prod
 
   kind: DaemonSet
 
