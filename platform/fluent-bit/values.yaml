@@ -1,0 +1,77 @@
+# Values подчарта fluent/fluent-bit лежат под ключом fluent-bit.
+# Релиз: fluent-bit, namespace: infra. Порядок установки — в README.md.
+fluent-bit:
+  kind: DaemonSet
+
+  # Тестовый под чарта (busybox:latest) не нужен
+  testFramework:
+    enabled: false
+
+  # Ключи доступа к сервису Логи (S3-ключ сервисного пользователя с ролью logs.writer).
+  # Secret создаётся вручную, в репозитории его нет — см. README.md.
+  envFrom:
+    - secretRef:
+        name: fluent-bit-selectel-logs
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+  # В Селектеле containerd: логи в /var/log/pods, /var/log/containers — ссылки на них.
+  # Каталог Docker не монтируем. /var/log доступен на запись — там лежит БД позиций tail.
+  daemonSetVolumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+    - name: etcmachineid
+      hostPath:
+        path: /etc/machine-id
+        type: File
+  daemonSetVolumeMounts:
+    - name: varlog
+      mountPath: /var/log
+    - name: etcmachineid
+      mountPath: /etc/machine-id
+      readOnly: true
+
+  config:
+    # Собираем только перечисленные namespace. Имя файла: <pod>_<namespace>_<container>-<id>.log.
+    # Новый namespace — ещё один путь через запятую.
+    inputs: |
+      [INPUT]
+          Name tail
+          Path /var/log/containers/*_kogda-dev_*.log,/var/log/containers/*_kogda-prod_*.log,/var/log/containers/*_larp-dictionary_*.log
+          multiline.parser cri
+          Tag kube.*
+          DB /var/log/fluent-bit-kube.db
+          Mem_Buf_Limit 5MB
+          Skip_Long_Lines On
+
+    filters: |
+      [FILTER]
+          Name kubernetes
+          Match kube.*
+          Merge_Log On
+          Keep_Log Off
+          K8S-Logging.Parser On
+          K8S-Logging.Exclude On
+          Annotations Off
+
+    # Группа — на namespace (k8s/<namespace>), поток — на под и контейнер (<pod>.<container>).
+    # После переменной в шаблоне допустимы только '.' или ','.
+    # Если шаблон не применился, пишем в запасные k8s/unmatched и unmatched.
+    outputs: |
+      [OUTPUT]
+          Name cloudwatch_logs
+          Match kube.*
+          region ru-6
+          endpoint ru-6.logs.selcloud.ru
+          log_group_name k8s/unmatched
+          log_group_template k8s/$kubernetes['namespace_name']
+          log_stream_name unmatched
+          log_stream_template $kubernetes['pod_name'].$kubernetes['container_name']
+          auto_create_group On
+          Retry_Limit 5
