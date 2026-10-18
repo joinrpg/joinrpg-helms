@@ -11,6 +11,13 @@ fluent-bit:
     - joinrpg-dev
     - joinrpg-prod
 
+  # Namespace, логи которых дополнительно пишутся в общий поток _all своей группы k8s/<namespace>:
+  # весь namespace одной лентой в панели Логов. Каждый должен быть и в списке namespaces.
+  # Пустой список — общий поток не пишется.
+  allStreamNamespaces:
+    - kogda-dev
+    - joinrpg-dev
+
   kind: DaemonSet
 
   # Тестовый под чарта (busybox:latest) не нужен
@@ -71,7 +78,8 @@ fluent-bit:
           K8S-Logging.Exclude On
           Annotations Off
 
-    # Группа — на namespace (k8s/<namespace>), поток — на под и контейнер (<pod>.<container>).
+    # Группа — на namespace (k8s/<namespace>), поток — на имя контейнера (<container>), под — в поле kubernetes.pod_name.
+    # Не <pod>.<container>: в Логах Селектела не больше 100 потоков на группу, а имена подов меняются при каждом деплое.
     # После переменной в шаблоне допустимы только '.' или ','.
     # Если шаблон не применился, пишем в запасные k8s/unmatched и unmatched.
     outputs: |
@@ -83,6 +91,21 @@ fluent-bit:
           log_group_name k8s/unmatched
           log_group_template k8s/$kubernetes['namespace_name']
           log_stream_name unmatched
-          log_stream_template $kubernetes['pod_name'].$kubernetes['container_name']
+          log_stream_template $kubernetes['container_name']
           auto_create_group On
           Retry_Limit 5
+      {{- with .Values.allStreamNamespaces }}
+      {{- range . }}{{ if not (has . $.Values.namespaces) }}{{ fail (printf "fluent-bit.allStreamNamespaces: %s нет в списке namespaces" .) }}{{ end }}{{ end }}
+
+      # Общий поток _all для namespace из allStreamNamespaces. Тег: kube.var.log.containers.<pod>_<namespace>_<container>-<id>.log
+      [OUTPUT]
+          Name cloudwatch_logs
+          Match_Regex ^kube\.var\.log\.containers\.[^_]+_({{ join "|" . }})_.*$
+          region ru-6
+          endpoint ru-6.logs.selcloud.ru
+          log_group_name k8s/unmatched
+          log_group_template k8s/$kubernetes['namespace_name']
+          log_stream_name _all
+          auto_create_group On
+          Retry_Limit 5
+      {{- end }}
