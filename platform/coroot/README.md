@@ -11,6 +11,7 @@
 | Ресурс | `Coroot` `coroot` |
 | Проект в Coroot | `coroot` |
 | Сервер | StatefulSet `coroot-coroot`, 1 под, Service `coroot-coroot` (http 8080, grpc 4317) |
+| Адрес интерфейса | <https://coroot.joinrpg.ru> — HTTPRoute `coroot` на Gateway `infra/main` (раздел «Доступ к интерфейсу») |
 | ClickHouse | StatefulSet `coroot-clickhouse-shard-0` (1 шард, 1 реплика) и `coroot-clickhouse-keeper` (1 реплика) |
 | Агенты | DaemonSet `coroot-node-agent` (по поду на ноде), Deployment `coroot-cluster-agent` |
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
@@ -75,15 +76,42 @@ kubectl top pods -n coroot
 
 ## Доступ к интерфейсу
 
-Ingress не создаётся, доступ — через port-forward:
+Публичный адрес — <https://coroot.joinrpg.ru>, открыт всем (метрики смотрят и с мобильного интернета), защита — только пароль. Поэтому пароль `admin` после установки сразу меняется в интерфейсе на длинный, а начальный из Secret `coroot-admin` больше не действует.
+
+Как устроено:
+
+- HTTPRoute `coroot` (шаблон [`templates/httproute.yaml`](templates/httproute.yaml), блок `route` в [`values.yaml`](values.yaml)) цепляется к общему Gateway `infra/main` и ведёт на Service `coroot-coroot:8080`;
+- на Gateway `main` — listener `coroot.joinrpg.ru` (HTTPS, порт 8443, Secret `coroot-joinrpg-tls`). Gateway в репозиториях не описан, listener добавляется вручную (ниже);
+- сертификат: по аннотации `cert-manager.io/cluster-issuer: letsencrypt-prod` на Gateway cert-manager сам создаёт `Certificate` `infra/coroot-joinrpg-tls` и продлевает его (Let's Encrypt, HTTP-01 через listener `http`);
+- редирект http → https — общий HTTPRoute `infra/https-redirect`;
+- маршруты принимаются только из namespace с меткой `gateway-access=shared` — она стоит на `coroot` вручную;
+- запись DNS `coroot.joinrpg.ru` — в `joinrpg-infrastructure`, слой `05-dns`.
+
+Listener и метка (один раз, до `helm upgrade` с маршрутом). Listener добавляется JSON-патчем в конец списка: `kubectl apply` файлом Gateway не делать — список listener'ов заменится целиком, и пропадут добавленные позже руками.
+
+```bash
+kubectl label ns coroot gateway-access=shared
+
+PATCH='[{"op":"add","path":"/spec/listeners/-","value":{"name":"coroot.joinrpg.ru","hostname":"coroot.joinrpg.ru","port":8443,"protocol":"HTTPS","tls":{"mode":"Terminate","certificateRefs":[{"kind":"Secret","name":"coroot-joinrpg-tls"}]},"allowedRoutes":{"namespaces":{"from":"Selector","selector":{"matchLabels":{"gateway-access":"shared"}}}}}}]'
+kubectl patch gateway main -n infra --type=json -p "$PATCH" --dry-run=server -o yaml | grep -A12 'name: coroot.joinrpg.ru'
+kubectl patch gateway main -n infra --type=json -p "$PATCH"
+```
+
+Проверка:
+
+```bash
+kubectl get certificate -n infra coroot-joinrpg-tls        # READY True (1–2 минуты)
+kubectl get httproute -n coroot coroot -o jsonpath='{.status.parents[0].conditions[*].reason}'; echo   # Accepted ResolvedRefs
+curl -sI https://coroot.joinrpg.ru | head -1
+```
+
+Запасной доступ без Gateway — port-forward:
 
 ```bash
 kubectl port-forward -n coroot svc/coroot-coroot 8080:8080
 ```
 
-Открыть <http://localhost:8080>, логин `admin`, пароль — из Secret `coroot-admin`.
-
-Если port-forward запущен в WSL, а браузер в Windows не открывает страницу — выполнить port-forward из PowerShell (kubectl для Windows с тем же kubeconfig).
+Открыть <http://localhost:8080>. Если port-forward запущен в WSL, а браузер в Windows не открывает страницу — выполнить port-forward из PowerShell (kubectl для Windows с тем же kubeconfig).
 
 ## Удаление
 

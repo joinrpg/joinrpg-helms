@@ -1,3 +1,13 @@
+# Публичный адрес интерфейса: HTTPRoute на общий Gateway infra/main (traefik).
+# Listener с этим hostname на Gateway main и метка gateway-access=shared на namespace coroot
+# добавляются вручную (README.md, «Доступ к интерфейсу»); сертификат выпускает cert-manager.
+route:
+  enabled: true
+  hostname: coroot.joinrpg.ru
+  gateway:
+    name: main
+    namespace: infra
+
 # spec ресурса Coroot (CRD coroots.coroot.com, оператор 1.10.6) — передаётся в шаблон как есть.
 # Релиз: coroot, namespace: coroot, имя ресурса: coroot. Порядок установки — в README.md.
 #
