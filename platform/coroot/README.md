@@ -14,7 +14,7 @@
 | ClickHouse | StatefulSet `coroot-clickhouse-shard-0` (1 шард, 1 реплика) и `coroot-clickhouse-keeper` (1 реплика) |
 | Агенты | DaemonSet `coroot-node-agent` (по поду на ноде), Deployment `coroot-cluster-agent` |
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
-| PVC (`universal.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
+| PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
 | Хранение | метрики 7d, трейсы 3d, логи 3d, профили 3d |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
 
@@ -67,7 +67,7 @@ helm upgrade --install coroot . -n coroot
 kubectl get coroot coroot -n coroot -o jsonpath='{.status}'; echo   # status OK, без errors
 kubectl get pods -n coroot -o wide                                   # все Running; сервер, ClickHouse, Keeper — на нодах ru-6a
 kubectl get ds coroot-node-agent -n coroot                           # DESIRED = READY = числу нод
-kubectl get pvc -n coroot                                            # 3 PVC Bound, universal.ru-6
+kubectl get pvc -n coroot                                            # 3 PVC Bound, fast2.ru-6
 kubectl get pods -n coroot -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].image}{"\n"}{end}'
 kubectl auth can-i list secrets -A --as=system:serviceaccount:coroot:coroot-cluster-agent   # no
 kubectl top pods -n coroot
@@ -102,7 +102,9 @@ kubectl get clusterrole,clusterrolebinding | grep cluster-agent    # пусто 
 
 - **Закреплять `image.name` у сервера, node-agent и cluster-agent обязательно.** Без него оператор при старте и раз в час переводит компонент на самый новый тег из ghcr.io/coroot.
 - **Символ доллара в `spec` запрещён** (в любой строке, включая будущие правила и шаблоны уведомлений): Coroot прогоняет конфиг через `os.ExpandEnv`, и `$имя` заменится значением переменной окружения или пустой строкой. Проверка — `grep '\$'` по рендеру (раздел «Установка»).
-- `reclaimPolicy: Retain` в ресурсе `Coroot` — это **PVC без ownerReference**: PVC не удаляется вместе с ресурсом. У StorageClass `universal.ru-6` `reclaimPolicy: Delete` — удаление PVC удаляет диск.
+- `reclaimPolicy: Retain` в ресурсе `Coroot` — это **PVC без ownerReference**: PVC не удаляется вместе с ресурсом. У StorageClass `fast2.ru-6` `reclaimPolicy: Delete` — удаление PVC удаляет диск.
+- **Смена `className` дисков** не применяется сама: у PVC и у `volumeClaimTemplates` StatefulSet (`coroot-coroot`, `coroot-clickhouse-shard-0`, `coroot-clickhouse-keeper`) эти поля неизменяемы. После `helm upgrade` удалить три StatefulSet и их PVC (данные пропадут) — оператор пересоздаст их по ресурсу `Coroot`.
+- StorageClass `universal.ru-6` в кластере не работает: типа тома `universal.ru-6a` нет (есть `universal2.ru-6a`), диски не создаются. Поэтому — `fast2.ru-6`.
 - Все диски — в зоне `ru-6a` (туда же привязаны поды). Диск Cinder не переезжает между зонами: если в `ru-6a` не останется нод, сервер и ClickHouse не запустятся.
 - Образы ClickHouse и Keeper зашиты в оператор: **обновление оператора может перезапустить ClickHouse**.
 - **Версию сервера Coroot не откатывать** `helm rollback` без восстановления PVC `data-coroot-coroot-0`: новая версия может перенести схему своей базы (SQLite с пользователями и настройками из интерфейса), и старая на ней не запустится. Резервной копии этой базы нет — основная конфигурация в ресурсе `Coroot`.

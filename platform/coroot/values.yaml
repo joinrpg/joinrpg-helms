@@ -40,7 +40,7 @@ spec:
   # Сервер Coroot (StatefulSet coroot-coroot, Service coroot-coroot:8080)
   storage:
     size: 5Gi
-    className: universal.ru-6
+    className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
     reclaimPolicy: Retain
   resources:
     requests:
@@ -70,6 +70,7 @@ spec:
 
   # Агент на каждой ноде (DaemonSet). ebpfTracer, ebpfProfiler, logCollector — по умолчанию (включены).
   # limits заданы явно: без них оператор ставит 500m / 1Gi.
+  # С лимитом памяти 512Mi агент получал OOMKilled при старте (обход контейнеров ноды, eBPF) — 1Gi, как по умолчанию у оператора.
   nodeAgent:
     image:
       name: ghcr.io/coroot/coroot-node-agent:1.36.4
@@ -79,7 +80,7 @@ spec:
         memory: 150Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
 
   clusterAgent:
     image:
@@ -96,7 +97,7 @@ spec:
     replicas: 1
     storage:
       size: 20Gi
-      className: universal.ru-6
+      className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
       reclaimPolicy: Retain
     resources:
       requests:
@@ -127,7 +128,7 @@ spec:
       replicas: 1
       storage:
         size: 2Gi
-        className: universal.ru-6
+        className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
         reclaimPolicy: Retain
       resources:
         requests:
