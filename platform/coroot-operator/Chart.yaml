@@ -1,0 +1,9 @@
+apiVersion: v2
+name: coroot-operator
+description: Оператор Coroot (CRD coroots.coroot.com) для наблюдаемости кластера joinrpg
+type: application
+version: 0.1.0
+dependencies:
+  - name: coroot-operator
+    version: 0.10.6
+    repository: https://coroot.github.io/helm-charts
