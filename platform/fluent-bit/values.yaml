@@ -16,7 +16,9 @@ fluent-bit:
   # Пустой список — общий поток не пишется.
   allStreamNamespaces:
     - kogda-dev
+    - kogda-prod
     - joinrpg-dev
+    - joinrpg-prod
 
   kind: DaemonSet
 
