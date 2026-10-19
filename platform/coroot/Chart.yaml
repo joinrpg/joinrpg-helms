@@ -1,0 +1,5 @@
+apiVersion: v2
+name: coroot
+description: Ресурс Coroot (Community Edition) для наблюдаемости кластера joinrpg; разворачивает его оператор из platform/coroot-operator
+type: application
+version: 0.1.0

@@ -1,0 +1,146 @@
+# spec ресурса Coroot (CRD coroots.coroot.com, оператор 1.10.6) — передаётся в шаблон как есть.
+# Релиз: coroot, namespace: coroot, имя ресурса: coroot. Порядок установки — в README.md.
+#
+# Нельзя:
+#  - символ доллара в любых строках: Coroot прогоняет свой конфиг через os.ExpandEnv;
+#  - токены, пароли, ключи в этом файле: только ссылки на Secret (…Secret: {name, key}).
+spec:
+  # Образы закреплены: без image.name оператор раз в час переводит компонент на новейший тег.
+  communityEdition:
+    image:
+      name: ghcr.io/coroot/coroot:1.27.4
+
+  replicas: 1
+
+  # Метрики в ClickHouse — Prometheus оператор не создаёт.
+  storeMetricsInClickhouse: true
+  metricsTTL: 7d
+  tracesTTL: 3d
+  logsTTL: 3d
+  profilesTTL: 3d
+
+  # Пароль admin при первом запуске; Secret coroot-admin создаётся вручную (README.md).
+  authBootstrapAdminPasswordSecret:
+    name: coroot-admin
+    key: password
+
+  # Проект coroot и его API-ключ. Secret coroot-project-key оператор создаёт сам
+  # (случайный ключ, без ownerReference — переживает удаление ресурса).
+  # Агенты берут ключ из apiKeySecret, проект принимает его через projects[].apiKeys.
+  apiKeySecret:
+    name: coroot-project-key
+    key: apiKey
+  projects:
+    - name: coroot
+      apiKeys:
+        - keySecret:
+            name: coroot-project-key
+            key: apiKey
+
+  # Сервер Coroot (StatefulSet coroot-coroot, Service coroot-coroot:8080)
+  storage:
+    size: 5Gi
+    className: universal.ru-6
+    reclaimPolicy: Retain
+  resources:
+    requests:
+      cpu: 50m
+      memory: 384Mi
+    limits:
+      memory: 1Gi
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values:
+                  - ru-6a
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            namespaces:
+              - joinrpg-prod
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: joinrpg-portal
+
+  # Агент на каждой ноде (DaemonSet). ebpfTracer, ebpfProfiler, logCollector — по умолчанию (включены).
+  # limits заданы явно: без них оператор ставит 500m / 1Gi.
+  nodeAgent:
+    image:
+      name: ghcr.io/coroot/coroot-node-agent:1.36.4
+    resources:
+      requests:
+        cpu: 20m
+        memory: 150Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  clusterAgent:
+    image:
+      name: ghcr.io/coroot/coroot-cluster-agent:1.11.6
+    resources:
+      requests:
+        cpu: 20m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+  clickhouse:
+    shards: 1
+    replicas: 1
+    storage:
+      size: 20Gi
+      className: universal.ru-6
+      reclaimPolicy: Retain
+    resources:
+      requests:
+        cpu: 50m
+        memory: 768Mi
+      limits:
+        memory: 2Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: topology.kubernetes.io/zone
+                  operator: In
+                  values:
+                    - ru-6a
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              namespaces:
+                - joinrpg-prod
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: joinrpg-portal
+    keeper:
+      replicas: 1
+      storage:
+        size: 2Gi
+        className: universal.ru-6
+        reclaimPolicy: Retain
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values:
+                      - ru-6a
