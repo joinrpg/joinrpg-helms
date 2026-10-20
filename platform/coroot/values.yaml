@@ -73,13 +73,21 @@ spec:
           customPatterns:
             - kogda-dev/*
             - joinrpg-dev/*
+          # webhook: {enabled: false} обязателен: без него при включённой интеграции Coroot
+          # сам включает категории уведомления (db/application_categories.go, coroot 1.27.4).
           notificationSettings:
             incidents:
               enabled: false
+              webhook:
+                enabled: false
             alerts:
               enabled: false
+              webhook:
+                enabled: false
             deployments:
               enabled: false
+              webhook:
+                enabled: false
 
       # Длинные соединения (Blazor SignalR /_blazor) живут минутами и часами, Coroot считает
       # каждое одним медленным запросом (~1% запросов > 10 с). Цель мягче, чтобы они
@@ -144,8 +152,9 @@ spec:
             summary: "Реквесты CPU по кластеру выше 95% allocatable"
             description: "Свободных реквестов CPU почти нет: деплой или пересоздание подов может упереться в Pending."
 
-      # Уведомления в Telegram через webhook (sendMessage). Пока выключены: alerts, incidents,
-      # deployments — false (включение — шаг 6, после создания Secret coroot-telegram).
+      # Уведомления в Telegram через webhook (sendMessage), включены 2026-10-20 (Secret coroot-telegram).
+      # Категориям без явного webhook в notificationSettings Coroot включает уведомления сам;
+      # о деплоях — только категории по умолчанию application (dev выключена явно).
       # Токен и chat_id — из env сервера (spec.env ниже), их подставляет os.ExpandEnv Coroot:
       # это единственные два места с символом доллара в конфиге.
       # Текст собирается через printf и экранируется функцией json (кавычки и переводы строк
@@ -156,9 +165,9 @@ spec:
           url: "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
           customFields:
             chat: "${TELEGRAM_CHAT_ID}"
-          alerts: false
-          incidents: false
-          deployments: false
+          alerts: true
+          incidents: true
+          deployments: true
           alertTemplate: >-
             {"chat_id": {{ json .Chat }}, "disable_web_page_preview": true, "text":
             {{ if eq .Status "OK" }}{{ json (printf "✅ Решено: %s — %s/%s\n%s" .RuleName .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🔥 %s: %s — %s/%s\n%s\n%s" .Severity .RuleName .Application.Namespace .Application.Name .Summary .URL) }}{{ end }} }

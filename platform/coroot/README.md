@@ -79,7 +79,9 @@ kubectl top pods -n coroot
 
 ## Уведомления в Telegram
 
-Webhook на `sendMessage` Telegram в `spec.projects[].notificationIntegrations.webhook`. Сейчас **выключен**: `alerts`, `incidents`, `deployments` — `false`.
+Webhook на `sendMessage` Telegram в `spec.projects[].notificationIntegrations.webhook`, **включён** (`alerts`, `incidents`, `deployments` — `true`), получатель — чат из ключа `chat-id` Secret `coroot-telegram` (бот `joinrpg_alert_bot`).
+
+- Категориям без явного `webhook` в `notificationSettings` Coroot включает уведомления сам; поэтому у `dev` `webhook: {enabled: false}` задан явно для всех трёх видов. О деплоях Coroot уведомляет только по категории по умолчанию `application`.
 
 - Токен бота и chat_id — из Secret `coroot-telegram` (ключи `bot-token`, `chat-id`) через `spec.env` сервера (`optional: true` — без Secret под стартует). В конфиг они попадают как `${TELEGRAM_BOT_TOKEN}` и `${TELEGRAM_CHAT_ID}`: Coroot прогоняет конфиг через `os.ExpandEnv`. Других символов доллара в `values.yaml` быть не должно.
 - Шаблоны собирают текст через `printf` и экранируют функцией `json` — кавычки и переводы строк из сообщений логов не ломают JSON; без `parse_mode` (Markdown падал бы на `_` и `*` из логов).
