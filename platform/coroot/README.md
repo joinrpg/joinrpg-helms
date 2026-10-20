@@ -58,7 +58,7 @@ cd platform/coroot
 
 helm lint . -n coroot
 helm template coroot . -n coroot > /tmp/coroot.yaml   # посмотреть ресурс Coroot
-grep -n '\$' /tmp/coroot.yaml                         # ровно две строки: TELEGRAM_CHAT_ID и TELEGRAM_BOT_TOKEN
+grep -n '\$' /tmp/coroot.yaml                         # ровно одна строка: TELEGRAM_RELAY_KEY
 grep -n 'name: ghcr' /tmp/coroot.yaml                 # три закреплённых образа
 helm upgrade --install coroot . -n coroot --dry-run=server
 
@@ -79,24 +79,33 @@ kubectl top pods -n coroot
 
 ## Уведомления в Telegram
 
-Webhook на `sendMessage` Telegram в `spec.projects[].notificationIntegrations.webhook`, **включён** (`alerts`, `incidents`, `deployments` — `true`), получатель — чат из ключа `chat-id` Secret `coroot-telegram` (бот `joinrpg_alert_bot`).
+Webhook в `spec.projects[].notificationIntegrations.webhook` шлёт `{"text": "…"}` на реле — Cloudflare Worker `coroot-tg-relay` ([`telegram-relay/`](telegram-relay/README.md)), а реле — в `sendMessage` бота `joinrpg_alert_bot`. Флаги `alerts`, `incidents`, `deployments` в `values.yaml`.
 
-- Категориям без явного `webhook` в `notificationSettings` Coroot включает уведомления сам; поэтому у `dev` `webhook: {enabled: false}` задан явно для всех трёх видов. О деплоях Coroot уведомляет только по категории по умолчанию `application`.
+Почему реле: из кластера `api.telegram.org` недоступен (таймаут), а Telegram принимает токен только в URL — Coroot при ошибке отправки пишет URL в лог целиком, с токеном. Токен бота и chat_id хранятся только в секретах воркера; в кластере — лишь ключ реле.
 
-- Токен бота и chat_id — из Secret `coroot-telegram` (ключи `bot-token`, `chat-id`) через `spec.env` сервера (`optional: true` — без Secret под стартует). В конфиг они попадают как `${TELEGRAM_BOT_TOKEN}` и `${TELEGRAM_CHAT_ID}`: Coroot прогоняет конфиг через `os.ExpandEnv`. Других символов доллара в `values.yaml` быть не должно.
+- Ключ реле — из Secret `coroot-telegram` (ключ `relay-key`) через `spec.env` сервера (`optional: true` — без Secret под стартует); в конфиг попадает как `${TELEGRAM_RELAY_KEY}` в заголовке `X-Relay-Key` (Coroot прогоняет конфиг через `os.ExpandEnv`). Других символов доллара в `values.yaml` быть не должно.
+- Категориям без явного `webhook` в `notificationSettings` Coroot включает уведомления сам; поэтому у `dev` (`kogda-dev/*`, `joinrpg-dev/*`) `webhook: {enabled: false}` задан явно для всех трёх видов. О деплоях Coroot уведомляет только по категории по умолчанию `application`.
 - Шаблоны собирают текст через `printf` и экранируют функцией `json` — кавычки и переводы строк из сообщений логов не ломают JSON; без `parse_mode` (Markdown падал бы на `_` и `*` из логов).
-- Категория `dev` (`kogda-dev/*`, `joinrpg-dev/*`) уведомлений не получает.
 
-Secret создаётся вручную (значения в репозиторий не кладутся), затем сервер перезапускается, чтобы прочитать env:
+Secret создаётся вручную тем же ключом, что `RELAY_KEY` воркера; затем сервер перезапускается, чтобы прочитать env:
 
 ```bash
-kubectl create secret generic coroot-telegram -n coroot \
-  --from-literal=bot-token='<токен от BotFather>' \
-  --from-literal=chat-id='<id чата>'
+read -rs RELAY_KEY; echo
+kubectl create secret generic coroot-telegram -n coroot --from-literal=relay-key="$RELAY_KEY"
+unset RELAY_KEY
 kubectl rollout restart statefulset coroot-coroot -n coroot
 ```
 
-Включение — `true` у нужных флагов в `values.yaml` и `helm upgrade`.
+Проверка доставки из кластера (под удаляется сам):
+
+```bash
+read -rs RELAY_KEY; echo
+kubectl run relaytest -n coroot --rm -i --restart=Never --image=curlimages/curl:8.10.1 --env="K=$RELAY_KEY" -- \
+  sh -c 'curl -s -m 15 -X POST -H "X-Relay-Key: $K" -H "Content-Type: application/json" -d "{\"text\":\"Проверка из кластера\"}" https://coroot-tg-relay.joinrpg.workers.dev/sendMessage; echo'
+unset RELAY_KEY
+```
+
+Смена токена бота — только в воркере (`telegram-relay/README.md`), кластер не трогается.
 
 ## Смена сроков хранения
 

@@ -1,0 +1,6 @@
+# Cloudflare Worker — реле уведомлений Coroot → Telegram (README.md рядом).
+# Секреты (BOT_TOKEN, CHAT_ID, RELAY_KEY) — только через `wrangler secret put`, не здесь.
+name = "coroot-tg-relay"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
