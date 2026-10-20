@@ -58,7 +58,7 @@ cd platform/coroot
 
 helm lint . -n coroot
 helm template coroot . -n coroot > /tmp/coroot.yaml   # посмотреть ресурс Coroot
-grep -n '\$' /tmp/coroot.yaml                         # должно быть пусто
+grep -n '\$' /tmp/coroot.yaml                         # ровно две строки: TELEGRAM_CHAT_ID и TELEGRAM_BOT_TOKEN
 grep -n 'name: ghcr' /tmp/coroot.yaml                 # три закреплённых образа
 helm upgrade --install coroot . -n coroot --dry-run=server
 
@@ -76,6 +76,25 @@ kubectl get pods -n coroot -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{
 kubectl auth can-i list secrets -A --as=system:serviceaccount:coroot:coroot-cluster-agent   # no
 kubectl top pods -n coroot
 ```
+
+## Уведомления в Telegram
+
+Webhook на `sendMessage` Telegram в `spec.projects[].notificationIntegrations.webhook`. Сейчас **выключен**: `alerts`, `incidents`, `deployments` — `false`.
+
+- Токен бота и chat_id — из Secret `coroot-telegram` (ключи `bot-token`, `chat-id`) через `spec.env` сервера (`optional: true` — без Secret под стартует). В конфиг они попадают как `${TELEGRAM_BOT_TOKEN}` и `${TELEGRAM_CHAT_ID}`: Coroot прогоняет конфиг через `os.ExpandEnv`. Других символов доллара в `values.yaml` быть не должно.
+- Шаблоны собирают текст через `printf` и экранируют функцией `json` — кавычки и переводы строк из сообщений логов не ломают JSON; без `parse_mode` (Markdown падал бы на `_` и `*` из логов).
+- Категория `dev` (`kogda-dev/*`, `joinrpg-dev/*`) уведомлений не получает.
+
+Secret создаётся вручную (значения в репозиторий не кладутся), затем сервер перезапускается, чтобы прочитать env:
+
+```bash
+kubectl create secret generic coroot-telegram -n coroot \
+  --from-literal=bot-token='<токен от BotFather>' \
+  --from-literal=chat-id='<id чата>'
+kubectl rollout restart statefulset coroot-coroot -n coroot
+```
+
+Включение — `true` у нужных флагов в `values.yaml` и `helm upgrade`.
 
 ## Смена сроков хранения
 

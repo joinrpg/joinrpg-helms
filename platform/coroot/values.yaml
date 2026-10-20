@@ -12,7 +12,8 @@ route:
 # Релиз: coroot, namespace: coroot, имя ресурса: coroot. Порядок установки — в README.md.
 #
 # Нельзя:
-#  - символ доллара в любых строках: Coroot прогоняет свой конфиг через os.ExpandEnv;
+#  - символ доллара в любых строках: Coroot прогоняет свой конфиг через os.ExpandEnv
+#    (исключение — намеренные ссылки на env TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID в webhook);
 #  - токены, пароли, ключи в этом файле: только ссылки на Secret (…Secret: {name, key}).
 spec:
   # Образы закреплены: без image.name оператор раз в час переводит компонент на новейший тег.
@@ -30,6 +31,22 @@ spec:
   tracesTTL: 7d
   logsTTL: 7d
   profilesTTL: 3d
+
+  # Env сервера Coroot для webhook Telegram (projects[].notificationIntegrations).
+  # Secret coroot-telegram создаётся вручную на шаге 6 (README.md); до этого optional — под стартует.
+  env:
+    - name: TELEGRAM_BOT_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: coroot-telegram
+          key: bot-token
+          optional: true
+    - name: TELEGRAM_CHAT_ID
+      valueFrom:
+        secretKeyRef:
+          name: coroot-telegram
+          key: chat-id
+          optional: true
 
   # Пароль admin при первом запуске; Secret coroot-admin создаётся вручную (README.md).
   authBootstrapAdminPasswordSecret:
@@ -126,6 +143,31 @@ spec:
           templates:
             summary: "Реквесты CPU по кластеру выше 95% allocatable"
             description: "Свободных реквестов CPU почти нет: деплой или пересоздание подов может упереться в Pending."
+
+      # Уведомления в Telegram через webhook (sendMessage). Пока выключены: alerts, incidents,
+      # deployments — false (включение — шаг 6, после создания Secret coroot-telegram).
+      # Токен и chat_id — из env сервера (spec.env ниже), их подставляет os.ExpandEnv Coroot:
+      # это единственные два места с символом доллара в конфиге.
+      # Текст собирается через printf и экранируется функцией json (кавычки и переводы строк
+      # в сообщениях логов не ломают JSON); parse_mode не задан — без Markdown.
+      notificationIntegrations:
+        baseURL: https://coroot.joinrpg.ru
+        webhook:
+          url: "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+          customFields:
+            chat: "${TELEGRAM_CHAT_ID}"
+          alerts: false
+          incidents: false
+          deployments: false
+          alertTemplate: >-
+            {"chat_id": {{ json .Chat }}, "disable_web_page_preview": true, "text":
+            {{ if eq .Status "OK" }}{{ json (printf "✅ Решено: %s — %s/%s\n%s" .RuleName .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🔥 %s: %s — %s/%s\n%s\n%s" .Severity .RuleName .Application.Namespace .Application.Name .Summary .URL) }}{{ end }} }
+          incidentTemplate: >-
+            {"chat_id": {{ json .Chat }}, "disable_web_page_preview": true, "text":
+            {{ if eq .Status "OK" }}{{ json (printf "✅ Инцидент закрыт: %s/%s\n%s" .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🚨 %s: %s/%s не выполняет SLO\n%s" .Status .Application.Namespace .Application.Name .URL) }}{{ end }} }
+          deploymentTemplate: >-
+            {"chat_id": {{ json .Chat }}, "disable_web_page_preview": true, "text":
+            {{ json (printf "🚀 Деплой %s/%s: %s\nВерсия: %s\n%s" .Application.Namespace .Application.Name .Status .Version .URL) }} }
 
   # Сервер Coroot (StatefulSet coroot-coroot, Service coroot-coroot:8080)
   storage:
