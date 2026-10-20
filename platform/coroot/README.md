@@ -16,7 +16,10 @@
 | Агенты | DaemonSet `coroot-node-agent` (по поду на ноде), Deployment `coroot-cluster-agent` |
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
 | PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
-| Хранение | метрики 7d, трейсы 3d, логи 3d, профили 3d |
+| Хранение | метрики 30d, трейсы 7d, логи 7d, профили 3d (~400 MiB/сутки, при этих сроках ~4–8 GiB) |
+| Алерты | встроенные правила Coroot + свои `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
+| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor) |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
 
 Версии образов (закреплены в [`values.yaml`](values.yaml)):
@@ -73,6 +76,29 @@ kubectl get pods -n coroot -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{
 kubectl auth can-i list secrets -A --as=system:serviceaccount:coroot:coroot-cluster-agent   # no
 kubectl top pods -n coroot
 ```
+
+## Смена сроков хранения
+
+`metricsTTL`, `tracesTTL`, `logsTTL`, `profilesTTL` в `values.yaml` действуют только на **новые** таблицы: Coroot создаёт их через `CREATE TABLE IF NOT EXISTS ... TTL`, существующие не меняет. После `helm upgrade` сроки уже созданных таблиц меняются вручную, в секундах (1d = 86400). Пример — сроки traces/logs 7d, metrics 30d; таблицы профилей (`profiling_*`) — по тому же образцу:
+
+```bash
+kubectl exec -i -n coroot coroot-clickhouse-shard-0-0 -c clickhouse-server -- \
+  clickhouse-client -d coroot_0r4fqpy1 --multiquery --materialize_ttl_after_modify=0 <<'EOF'
+ALTER TABLE metrics MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(2592000);
+ALTER TABLE otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(604800);
+ALTER TABLE otel_traces_histogram MODIFY TTL Timestamp + toIntervalSecond(604800);
+ALTER TABLE otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalSecond(604800);
+ALTER TABLE otel_traces_service_name MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(604800);
+ALTER TABLE otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(604800);
+ALTER TABLE otel_logs_service_name_severity_text MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(604800);
+EOF
+
+# проверка: интервал у каждой таблицы
+kubectl exec -n coroot coroot-clickhouse-shard-0-0 -c clickhouse-server -- clickhouse-client -d coroot_0r4fqpy1 -q "select name, extract(create_table_query, 'toInterval[A-Za-z]+\\(\\d+\\)') ttl from system.tables where database = 'coroot_0r4fqpy1' and engine like '%MergeTree' order by name"
+```
+
+- `coroot_0r4fqpy1` — база проекта `coroot` (имя создаёт Coroot); выражения TTL — как в `ch/client.go` coroot 1.27.4 (у `otel_traces_histogram` — без `toDateTime`).
+- `materialize_ttl_after_modify=0` — без перезаписи старых кусков данных: при увеличении срока удалять нечего, при уменьшении старые данные уйдут при следующих слияниях.
 
 ## Доступ к интерфейсу
 

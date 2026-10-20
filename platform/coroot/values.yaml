@@ -24,9 +24,11 @@ spec:
 
   # Метрики в ClickHouse — Prometheus оператор не создаёт.
   storeMetricsInClickhouse: true
-  metricsTTL: 7d
-  tracesTTL: 3d
-  logsTTL: 3d
+  # Замер за первые сутки: ~400 MiB/сутки (трейсы ~260, метрики ~72, профили ~54, логи ~16) —
+  # при этих сроках ~4 GiB из 20Gi (с запасом на дневной трафик — до ~8 GiB).
+  metricsTTL: 30d
+  tracesTTL: 7d
+  logsTTL: 7d
   profilesTTL: 3d
 
   # Пароль admin при первом запуске; Secret coroot-admin создаётся вручную (README.md).
@@ -46,6 +48,84 @@ spec:
         - keySecret:
             name: coroot-project-key
             key: apiKey
+
+      # dev-окружения — только в интерфейсе: без уведомлений об инцидентах, алертах и деплоях
+      # (частые деплои joinrpg-dev, ложная задержка kogda-dev на малом трафике — грабля G156).
+      applicationCategories:
+        - name: dev
+          customPatterns:
+            - kogda-dev/*
+            - joinrpg-dev/*
+          notificationSettings:
+            incidents:
+              enabled: false
+            alerts:
+              enabled: false
+            deployments:
+              enabled: false
+
+      # Длинные соединения (Blazor SignalR /_blazor) живут минутами и часами, Coroot считает
+      # каждое одним медленным запросом (~1% запросов > 10 с). Цель мягче, чтобы они
+      # не открывали инциденты, а реальные задержки > 1 с оставались видны.
+      inspectionOverrides:
+        sloLatency:
+          - applicationId: "joinrpg-prod:Deployment:joinrpg-portal"
+            objectivePercent: 95
+            objectiveThreshold: 1s
+          - applicationId: "joinrpg-prod:Deployment:joinrpg-idportal"
+            objectivePercent: 95
+            objectiveThreshold: 1s
+
+      # Встроенные правила (instance-restarts, instance-availability, kubernetes-events —
+      # FailedScheduling, BackOff и т.п.) включены по умолчанию; здесь только свои.
+      # Реквесты CPU считаются к числу ядер ноды: allocatable в метриках Coroot нет,
+      # allocatable ≈ 0.97 ядра, поэтому 0.95 ядер ≈ 98% allocatable, 0.92 ≈ 95%.
+      # Учитываются только поды в фазах Pending и Running (метрика фазы есть для всех фаз,
+      # текущая — со значением 1, поэтому > 0).
+      alertingRules:
+        - id: node-cpu-requests
+          name: "Node CPU requests"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                sum by (node) (
+                  kube_pod_container_resource_requests{resource="cpu"}
+                  * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~"Pending|Running"} > 0)
+                )
+                / on (node)
+                max by (node) (
+                  max by (system_uuid, node) (kube_node_info)
+                  * on (system_uuid) group_left () max by (system_uuid) (node_resources_cpu_logical_cores)
+                )
+                > 0.95
+          for: 15m
+          keepFiringFor: 15m
+          severity: warning
+          templates:
+            summary: "Реквесты CPU на ноде {{.node}} выше 98% allocatable"
+            description: "Новые поды могут не поместиться на ноду (Pending). Проверьте реквесты подов на ноде."
+        - id: cluster-cpu-requests
+          name: "Cluster CPU requests"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                sum (
+                  kube_pod_container_resource_requests{resource="cpu"}
+                  * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~"Pending|Running"} > 0)
+                )
+                / sum (
+                  max by (system_uuid, node) (kube_node_info)
+                  * on (system_uuid) group_left () max by (system_uuid) (node_resources_cpu_logical_cores)
+                )
+                > 0.92
+          for: 15m
+          keepFiringFor: 15m
+          severity: warning
+          templates:
+            summary: "Реквесты CPU по кластеру выше 95% allocatable"
+            description: "Свободных реквестов CPU почти нет: деплой или пересоздание подов может упереться в Pending."
 
   # Сервер Coroot (StatefulSet coroot-coroot, Service coroot-coroot:8080)
   storage:
@@ -81,13 +161,14 @@ spec:
   # Агент на каждой ноде (DaemonSet). ebpfTracer, ebpfProfiler, logCollector — по умолчанию (включены).
   # limits заданы явно: без них оператор ставит 500m / 1Gi.
   # С лимитом памяти 512Mi агент получал OOMKilled при старте (обход контейнеров ноды, eBPF) — 1Gi, как по умолчанию у оператора.
+  # Реквест памяти — по факту за первые сутки (~390 MiB, на старте до ~590 MiB).
   nodeAgent:
     image:
       name: ghcr.io/coroot/coroot-node-agent:1.36.4
     resources:
       requests:
         cpu: 20m
-        memory: 150Mi
+        memory: 400Mi
       limits:
         cpu: 500m
         memory: 1Gi
@@ -140,12 +221,13 @@ spec:
         size: 2Gi
         className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
         reclaimPolicy: Retain
+      # За первые сутки ~205 MiB — 80% прежнего лимита 256Mi.
       resources:
         requests:
           cpu: 10m
-          memory: 64Mi
+          memory: 128Mi
         limits:
-          memory: 256Mi
+          memory: 384Mi
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
