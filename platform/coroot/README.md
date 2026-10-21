@@ -17,7 +17,8 @@
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
 | PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
 | Хранение | метрики 30d, трейсы 7d, логи 7d, профили 3d (~400 MiB/сутки, при этих сроках ~4–8 GiB) |
-| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке) + свои `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Категории | `control-plane` дополнена шаблоном `_/*` (процессы хоста); `dev` — без уведомлений |
 | Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
 | SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor) |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
@@ -106,6 +107,24 @@ unset RELAY_KEY
 ```
 
 Смена токена бота — только в воркере (`telegram-relay/README.md`), кластер не трогается.
+
+## Метрики cert-manager
+
+Правила `certificate-expiry` (меньше 21 дня до истечения — продление за 30 дней не удалось) и `certificate-not-ready` работают на метриках контроллера cert-manager (порт 9402). cluster-agent Coroot собирает метрики только с подов с аннотациями `coroot.com/*` (`prometheus.io/*` не читает), поэтому у пода контроллера должны быть:
+
+```yaml
+coroot.com/scrape-metrics: "true"
+coroot.com/metrics-port: "9402"
+```
+
+cert-manager стоит отдельным helm-релизом `cert-manager` (ns `cert-manager`, чарт `jetstack/cert-manager` v1.21.2), не из этого репозитория; аннотации добавляются его `podAnnotations`:
+
+```bash
+helm repo add jetstack https://charts.jetstack.io --force-update
+helm upgrade cert-manager jetstack/cert-manager -n cert-manager --version v1.21.2 --reuse-values \
+  --set-string 'podAnnotations.coroot\.com/scrape-metrics=true' \
+  --set-string 'podAnnotations.coroot\.com/metrics-port=9402'
+```
 
 ## Смена сроков хранения
 

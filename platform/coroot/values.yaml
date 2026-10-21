@@ -63,6 +63,11 @@ spec:
       # dev-окружения — только в интерфейсе: без уведомлений об инцидентах, алертах и деплоях
       # (частые деплои joinrpg-dev, ложная задержка kogda-dev на малом трафике — грабля G156).
       applicationCategories:
+        # Процессы хоста (_/rsyslog, _/networkd-dispatcher…) встроенными шаблонами
+        # control-plane не покрыты и попадали в application — переносим все в control-plane.
+        - name: control-plane
+          customPatterns:
+            - _/*
         - name: dev
           customPatterns:
             - kogda-dev/*
@@ -113,6 +118,61 @@ spec:
               minCount: 3
               maxAlertsPerApp: 20
               evaluateWithAi: true
+        # Шумные для служебных компонентов правила — только для приложений (категория
+        # application). control-plane (kubelet, containerd, cert-manager, calico, процессы
+        # хоста) и monitoring (coroot) — в интерфейсе без алертов; dev — уведомления выключены.
+        # Рестарты, OOM, недоступность, диск, kubernetes-events — по-прежнему для всех.
+        # selector в конфиге заменяет встроенный (all) целиком.
+        - id: new-log-patterns
+          selector:
+            type: category
+            categories:
+              - application
+        - id: network-tcp-connections
+          selector:
+            type: category
+            categories:
+              - application
+        - id: network-connectivity
+          selector:
+            type: category
+            categories:
+              - application
+        - id: memory-leak
+          selector:
+            type: category
+            categories:
+              - application
+        # Сертификаты cert-manager (метрики контроллера cert-manager, порт 9402; собираются,
+        # если на поде есть аннотации coroot.com/scrape-metrics и coroot.com/metrics-port — README.md).
+        # cert-manager продлевает за 30 дней до истечения: меньше 21 дня — продление не
+        # удаётся уже 9+ дней.
+        - id: certificate-expiry
+          name: "Certificate expiry"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 21
+          for: 1h
+          keepFiringFor: 1h
+          severity: critical
+          templates:
+            summary: "Сертификат {{.namespace}}/{{.name}} истекает менее чем через 21 день — cert-manager его не продлил"
+            description: "kubectl describe certificate -n {{.namespace}} {{.name}}; логи cert-manager."
+        - id: certificate-not-ready
+          name: "Certificate not ready"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                certmanager_certificate_ready_status{condition="True"} == 0
+          for: 1h
+          keepFiringFor: 15m
+          severity: warning
+          templates:
+            summary: "Сертификат {{.namespace}}/{{.name}} не Ready больше часа"
+            description: "kubectl describe certificate -n {{.namespace}} {{.name}}; заказы и challenges ACME."
         - id: node-cpu-requests
           name: "Node CPU requests"
           source:
