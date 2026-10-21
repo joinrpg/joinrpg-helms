@@ -102,6 +102,17 @@ spec:
       # Учитываются только поды в фазах Pending и Running (метрика фазы есть для всех фаз,
       # текущая — со значением 1, поэтому > 0).
       alertingRules:
+        # Встроенное правило: minCount 1 → 3. Разовый FailedScheduling на раскатке
+        # (maxSurge 0, старый под ещё Terminating держит CPU, новый ждёт ~2 с) — шум;
+        # зависший Pending scheduler повторяет, 3 события набегают за минуты.
+        # source в конфиге заменяет встроенный целиком — остальные поля как по умолчанию.
+        - id: kubernetes-events
+          source:
+            type: kubernetes_events
+            kubernetesEvents:
+              minCount: 3
+              maxAlertsPerApp: 20
+              evaluateWithAi: true
         - id: node-cpu-requests
           name: "Node CPU requests"
           source:

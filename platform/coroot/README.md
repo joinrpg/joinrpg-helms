@@ -17,7 +17,7 @@
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
 | PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
 | Хранение | метрики 30d, трейсы 7d, логи 7d, профили 3d (~400 MiB/сутки, при этих сроках ~4–8 GiB) |
-| Алерты | встроенные правила Coroot + свои `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке) + свои `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
 | Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
 | SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor) |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
