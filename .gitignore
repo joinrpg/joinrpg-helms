@@ -6,3 +6,6 @@ docs/
 
 # Скачанные зависимости чартов (восстанавливаются helm dependency build по Chart.lock)
 platform/*/charts/
+
+# Кэш wrangler (Cloudflare Worker): id и имя аккаунта Cloudflare
+.wrangler/
