@@ -1,0 +1,14 @@
+{{- /*
+Ресурс Coroot. Оператор при denyGlobalSecrets читает и создаёт Secret только в своём namespace,
+поэтому ресурс должен лежать в namespace оператора (coroot).
+*/ -}}
+{{- if ne .Release.Namespace "coroot" }}
+{{- fail "Релиз ставится только в namespace coroot (там же оператор, см. README.md)" }}
+{{- end }}
+apiVersion: coroot.com/v1
+kind: Coroot
+metadata:
+  name: coroot
+  namespace: {{ .Release.Namespace }}
+spec:
+  {{- toYaml .Values.spec | nindent 2 }}

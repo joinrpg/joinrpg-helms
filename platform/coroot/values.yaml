@@ -1,0 +1,358 @@
+# Публичный адрес интерфейса: HTTPRoute на общий Gateway infra/main (traefik).
+# Listener с этим hostname на Gateway main и метка gateway-access=shared на namespace coroot
+# добавляются вручную (README.md, «Доступ к интерфейсу»); сертификат выпускает cert-manager.
+route:
+  enabled: true
+  hostname: coroot.joinrpg.ru
+  gateway:
+    name: main
+    namespace: infra
+
+# spec ресурса Coroot (CRD coroots.coroot.com, оператор 1.10.6) — передаётся в шаблон как есть.
+# Релиз: coroot, namespace: coroot, имя ресурса: coroot. Порядок установки — в README.md.
+#
+# Нельзя:
+#  - символ доллара в любых строках: Coroot прогоняет свой конфиг через os.ExpandEnv
+#    (исключение — намеренная ссылка на env TELEGRAM_RELAY_KEY в заголовке webhook);
+#  - токены, пароли, ключи в этом файле: только ссылки на Secret (…Secret: {name, key}).
+spec:
+  # Образы закреплены: без image.name оператор раз в час переводит компонент на новейший тег.
+  communityEdition:
+    image:
+      name: ghcr.io/coroot/coroot:1.27.4
+
+  replicas: 1
+
+  # Метрики в ClickHouse — Prometheus оператор не создаёт.
+  storeMetricsInClickhouse: true
+  # Замер за первые сутки: ~400 MiB/сутки (трейсы ~260, метрики ~72, профили ~54, логи ~16) —
+  # при этих сроках ~4 GiB из 20Gi (с запасом на дневной трафик — до ~8 GiB).
+  metricsTTL: 30d
+  tracesTTL: 7d
+  logsTTL: 7d
+  profilesTTL: 3d
+
+  # Env сервера Coroot для webhook Telegram (projects[].notificationIntegrations): ключ реле.
+  # Secret coroot-telegram создаётся вручную (README.md); optional — без него под стартует.
+  env:
+    - name: TELEGRAM_RELAY_KEY
+      valueFrom:
+        secretKeyRef:
+          name: coroot-telegram
+          key: relay-key
+          optional: true
+
+  # Пароль admin при первом запуске; Secret coroot-admin создаётся вручную (README.md).
+  authBootstrapAdminPasswordSecret:
+    name: coroot-admin
+    key: password
+
+  # Проект coroot и его API-ключ. Secret coroot-project-key оператор создаёт сам
+  # (случайный ключ, без ownerReference — переживает удаление ресурса).
+  # Агенты берут ключ из apiKeySecret, проект принимает его через projects[].apiKeys.
+  apiKeySecret:
+    name: coroot-project-key
+    key: apiKey
+  projects:
+    - name: coroot
+      apiKeys:
+        - keySecret:
+            name: coroot-project-key
+            key: apiKey
+
+      # dev-окружения — только в интерфейсе: без уведомлений об инцидентах, алертах и деплоях
+      # (частые деплои joinrpg-dev, ложная задержка kogda-dev на малом трафике — грабля G156).
+      applicationCategories:
+        # Процессы хоста (_/rsyslog, _/networkd-dispatcher…) встроенными шаблонами
+        # control-plane не покрыты и попадали в application — переносим все в control-plane.
+        - name: control-plane
+          customPatterns:
+            - _/*
+        - name: dev
+          customPatterns:
+            - kogda-dev/*
+            - joinrpg-dev/*
+          # webhook: {enabled: false} обязателен: без него при включённой интеграции Coroot
+          # сам включает категории уведомления (db/application_categories.go, coroot 1.27.4).
+          notificationSettings:
+            incidents:
+              enabled: false
+              webhook:
+                enabled: false
+            alerts:
+              enabled: false
+              webhook:
+                enabled: false
+            deployments:
+              enabled: false
+              webhook:
+                enabled: false
+
+      # Длинные соединения (Blazor SignalR /_blazor) живут минутами и часами, Coroot считает
+      # каждое одним медленным запросом (~1% запросов > 10 с). Цель мягче, чтобы они
+      # не открывали инциденты, а реальные задержки > 1 с оставались видны.
+      inspectionOverrides:
+        sloLatency:
+          - applicationId: "joinrpg-prod:Deployment:joinrpg-portal"
+            objectivePercent: 95
+            objectiveThreshold: 1s
+          - applicationId: "joinrpg-prod:Deployment:joinrpg-idportal"
+            objectivePercent: 95
+            objectiveThreshold: 1s
+
+      # Встроенные правила (instance-restarts, instance-availability, kubernetes-events —
+      # FailedScheduling, BackOff и т.п.) включены по умолчанию; здесь только свои.
+      # Реквесты CPU считаются к числу ядер ноды: allocatable в метриках Coroot нет,
+      # allocatable ≈ 0.97 ядра, поэтому 0.95 ядер ≈ 98% allocatable, 0.92 ≈ 95%.
+      # Учитываются только поды в фазах Pending и Running (метрика фазы есть для всех фаз,
+      # текущая — со значением 1, поэтому > 0).
+      alertingRules:
+        # Встроенное правило: minCount 1 → 3. Разовый FailedScheduling на раскатке
+        # (maxSurge 0, старый под ещё Terminating держит CPU, новый ждёт ~2 с) — шум;
+        # зависший Pending scheduler повторяет, 3 события набегают за минуты.
+        # source в конфиге заменяет встроенный целиком — остальные поля как по умолчанию.
+        - id: kubernetes-events
+          source:
+            type: kubernetes_events
+            kubernetesEvents:
+              minCount: 3
+              maxAlertsPerApp: 20
+              evaluateWithAi: true
+        # Шумные для служебных компонентов правила — только для приложений (категория
+        # application). control-plane (kubelet, containerd, cert-manager, calico, процессы
+        # хоста) и monitoring (coroot) — в интерфейсе без алертов; dev — уведомления выключены.
+        # Рестарты, OOM, недоступность, диск, kubernetes-events — по-прежнему для всех.
+        # selector в конфиге заменяет встроенный (all) целиком.
+        - id: new-log-patterns
+          selector:
+            type: category
+            categories:
+              - application
+        - id: network-tcp-connections
+          selector:
+            type: category
+            categories:
+              - application
+        - id: network-connectivity
+          selector:
+            type: category
+            categories:
+              - application
+        - id: memory-leak
+          selector:
+            type: category
+            categories:
+              - application
+        # Сертификаты cert-manager (метрики контроллера cert-manager, порт 9402; собираются,
+        # если на поде есть аннотации coroot.com/scrape-metrics и coroot.com/metrics-port — README.md).
+        # cert-manager продлевает за 30 дней до истечения: меньше 21 дня — продление не
+        # удаётся уже 9+ дней.
+        - id: certificate-expiry
+          name: "Certificate expiry"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 21
+          for: 1h
+          keepFiringFor: 1h
+          severity: critical
+          templates:
+            summary: "Сертификат {{.namespace}}/{{.name}} истекает менее чем через 21 день — cert-manager его не продлил"
+            description: "kubectl describe certificate -n {{.namespace}} {{.name}}; логи cert-manager."
+        - id: certificate-not-ready
+          name: "Certificate not ready"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                certmanager_certificate_ready_status{condition="True"} == 0
+          for: 1h
+          keepFiringFor: 15m
+          severity: warning
+          templates:
+            summary: "Сертификат {{.namespace}}/{{.name}} не Ready больше часа"
+            description: "kubectl describe certificate -n {{.namespace}} {{.name}}; заказы и challenges ACME."
+        - id: node-cpu-requests
+          name: "Node CPU requests"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                sum by (node) (
+                  kube_pod_container_resource_requests{resource="cpu"}
+                  * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~"Pending|Running"} > 0)
+                )
+                / on (node)
+                max by (node) (
+                  max by (system_uuid, node) (kube_node_info)
+                  * on (system_uuid) group_left () max by (system_uuid) (node_resources_cpu_logical_cores)
+                )
+                > 0.95
+          for: 15m
+          keepFiringFor: 15m
+          severity: warning
+          templates:
+            summary: "Реквесты CPU на ноде {{.node}} выше 98% allocatable"
+            description: "Новые поды могут не поместиться на ноду (Pending). Проверьте реквесты подов на ноде."
+        - id: cluster-cpu-requests
+          name: "Cluster CPU requests"
+          source:
+            type: promql
+            promql:
+              expression: >-
+                sum (
+                  kube_pod_container_resource_requests{resource="cpu"}
+                  * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~"Pending|Running"} > 0)
+                )
+                / sum (
+                  max by (system_uuid, node) (kube_node_info)
+                  * on (system_uuid) group_left () max by (system_uuid) (node_resources_cpu_logical_cores)
+                )
+                > 0.92
+          for: 15m
+          keepFiringFor: 15m
+          severity: warning
+          templates:
+            summary: "Реквесты CPU по кластеру выше 95% allocatable"
+            description: "Свободных реквестов CPU почти нет: деплой или пересоздание подов может упереться в Pending."
+
+      # Уведомления в Telegram — через реле на Cloudflare Worker (telegram-relay/, README.md):
+      # api.telegram.org из кластера недоступен, а токен в URL Coroot пишет в лог при ошибках.
+      # Токен бота и chat_id — только в секретах воркера; Coroot шлёт {"text": …} и ключ реле
+      # в заголовке X-Relay-Key из env TELEGRAM_RELAY_KEY (spec.env) — его подставляет
+      # os.ExpandEnv Coroot: единственное место с символом доллара в конфиге.
+      # Категориям без явного webhook в notificationSettings Coroot включает уведомления сам;
+      # о деплоях — только категории по умолчанию application (dev выключена явно).
+      # Текст собирается через printf и экранируется функцией json (кавычки и переводы строк
+      # в сообщениях логов не ломают JSON); parse_mode не задан — без Markdown.
+      notificationIntegrations:
+        baseURL: https://coroot.joinrpg.ru
+        webhook:
+          url: https://coroot-tg-relay.joinrpg.workers.dev/sendMessage
+          customHeaders:
+            - key: X-Relay-Key
+              value: "${TELEGRAM_RELAY_KEY}"
+          alerts: true
+          incidents: true
+          deployments: true
+          alertTemplate: >-
+            {"text":
+            {{ if eq .Status "OK" }}{{ json (printf "✅ Решено: %s — %s/%s\n%s" .RuleName .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🔥 %s: %s — %s/%s\n%s\n%s" .Severity .RuleName .Application.Namespace .Application.Name .Summary .URL) }}{{ end }} }
+          incidentTemplate: >-
+            {"text":
+            {{ if eq .Status "OK" }}{{ json (printf "✅ Инцидент закрыт: %s/%s\n%s" .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🚨 %s: %s/%s не выполняет SLO\n%s" .Status .Application.Namespace .Application.Name .URL) }}{{ end }} }
+          deploymentTemplate: >-
+            {"text":
+            {{ json (printf "🚀 Деплой %s/%s: %s\nВерсия: %s\n%s" .Application.Namespace .Application.Name .Status .Version .URL) }} }
+
+  # Сервер Coroot (StatefulSet coroot-coroot, Service coroot-coroot:8080)
+  storage:
+    size: 5Gi
+    className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
+    reclaimPolicy: Retain
+  resources:
+    requests:
+      cpu: 50m
+      memory: 384Mi
+    limits:
+      memory: 1Gi
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values:
+                  - ru-6a
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            namespaces:
+              - joinrpg-prod
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: joinrpg-portal
+
+  # Агент на каждой ноде (DaemonSet). ebpfTracer, ebpfProfiler, logCollector — по умолчанию (включены).
+  # limits заданы явно: без них оператор ставит 500m / 1Gi.
+  # С лимитом памяти 512Mi агент получал OOMKilled при старте (обход контейнеров ноды, eBPF) — 1Gi, как по умолчанию у оператора.
+  # Реквест памяти — по факту за первые сутки (~390 MiB, на старте до ~590 MiB).
+  nodeAgent:
+    image:
+      name: ghcr.io/coroot/coroot-node-agent:1.36.4
+    resources:
+      requests:
+        cpu: 20m
+        memory: 400Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  clusterAgent:
+    image:
+      name: ghcr.io/coroot/coroot-cluster-agent:1.11.6
+    resources:
+      requests:
+        cpu: 20m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+  clickhouse:
+    shards: 1
+    replicas: 1
+    storage:
+      size: 20Gi
+      className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
+      reclaimPolicy: Retain
+    resources:
+      requests:
+        cpu: 50m
+        memory: 768Mi
+      limits:
+        memory: 2Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: topology.kubernetes.io/zone
+                  operator: In
+                  values:
+                    - ru-6a
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              namespaces:
+                - joinrpg-prod
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: joinrpg-portal
+    keeper:
+      replicas: 1
+      storage:
+        size: 2Gi
+        className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
+        reclaimPolicy: Retain
+      # За первые сутки ~205 MiB — 80% прежнего лимита 256Mi.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+        limits:
+          memory: 384Mi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values:
+                      - ru-6a

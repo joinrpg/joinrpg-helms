@@ -1,0 +1,11 @@
+# Файлы с доступами к облаку (шаблон — secrets.env.example)
+secrets*.env
+
+# Служебные документы, в репозиторий не попадают
+docs/
+
+# Скачанные зависимости чартов (восстанавливаются helm dependency build по Chart.lock)
+platform/*/charts/
+
+# Кэш wrangler (Cloudflare Worker): id и имя аккаунта Cloudflare
+.wrangler/

@@ -1,0 +1,113 @@
+# Values подчарта fluent/fluent-bit лежат под ключом fluent-bit.
+# Релиз: fluent-bit, namespace: infra. Порядок установки — в README.md.
+fluent-bit:
+  # Namespace, логи контейнеров которых отправляются в Логи (группа k8s/<namespace>).
+  # Добавить или убрать namespace — правка этого списка и helm upgrade.
+  # Namespace, которого ещё нет в кластере, можно указывать заранее: логи пойдут, когда появятся поды.
+  namespaces:
+    - kogda-dev
+    - kogda-prod
+    - larp-dictionary
+    - joinrpg-dev
+    - joinrpg-prod
+
+  # Namespace, логи которых дополнительно пишутся в общий поток _all своей группы k8s/<namespace>:
+  # весь namespace одной лентой в панели Логов. Каждый должен быть и в списке namespaces.
+  # Пустой список — общий поток не пишется.
+  allStreamNamespaces:
+    - kogda-dev
+    - kogda-prod
+    - joinrpg-dev
+    - joinrpg-prod
+
+  kind: DaemonSet
+
+  # Тестовый под чарта (busybox:latest) не нужен
+  testFramework:
+    enabled: false
+
+  # Ключи доступа к сервису Логи (S3-ключ сервисного пользователя с ролью logs.writer).
+  # Secret создаётся вручную, в репозитории его нет — см. README.md.
+  envFrom:
+    - secretRef:
+        name: fluent-bit-selectel-logs
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+  # В Селектеле containerd: логи в /var/log/pods, /var/log/containers — ссылки на них.
+  # Каталог Docker не монтируем. /var/log доступен на запись — там лежит БД позиций tail.
+  daemonSetVolumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+    - name: etcmachineid
+      hostPath:
+        path: /etc/machine-id
+        type: File
+  daemonSetVolumeMounts:
+    - name: varlog
+      mountPath: /var/log
+    - name: etcmachineid
+      mountPath: /etc/machine-id
+      readOnly: true
+
+  config:
+    # Собираем только namespace из списка namespaces выше. Имя файла: <pod>_<namespace>_<container>-<id>.log.
+    # Чарт отрисовывает inputs через tpl, поэтому .Values здесь — values подчарта.
+    inputs: |
+      {{- if not .Values.namespaces }}{{ fail "fluent-bit.namespaces: список namespace пуст" }}{{ end -}}
+      [INPUT]
+          Name tail
+          Path {{ range $i, $ns := .Values.namespaces }}{{ if $i }},{{ end }}/var/log/containers/*_{{ required "fluent-bit.namespaces: пустое имя namespace" $ns }}_*.log{{ end }}
+          multiline.parser cri
+          Tag kube.*
+          DB /var/log/fluent-bit-kube.db
+          Mem_Buf_Limit 5MB
+          Skip_Long_Lines On
+
+    filters: |
+      [FILTER]
+          Name kubernetes
+          Match kube.*
+          Merge_Log On
+          Keep_Log Off
+          K8S-Logging.Parser On
+          K8S-Logging.Exclude On
+          Annotations Off
+
+    # Группа — на namespace (k8s/<namespace>), поток — на имя контейнера (<container>), под — в поле kubernetes.pod_name.
+    # Не <pod>.<container>: в Логах Селектела не больше 100 потоков на группу, а имена подов меняются при каждом деплое.
+    # После переменной в шаблоне допустимы только '.' или ','.
+    # Если шаблон не применился, пишем в запасные k8s/unmatched и unmatched.
+    outputs: |
+      [OUTPUT]
+          Name cloudwatch_logs
+          Match kube.*
+          region ru-6
+          endpoint ru-6.logs.selcloud.ru
+          log_group_name k8s/unmatched
+          log_group_template k8s/$kubernetes['namespace_name']
+          log_stream_name unmatched
+          log_stream_template $kubernetes['container_name']
+          auto_create_group On
+          Retry_Limit 5
+      {{- with .Values.allStreamNamespaces }}
+      {{- range . }}{{ if not (has . $.Values.namespaces) }}{{ fail (printf "fluent-bit.allStreamNamespaces: %s нет в списке namespaces" .) }}{{ end }}{{ end }}
+
+      # Общий поток _all для namespace из allStreamNamespaces. Тег: kube.var.log.containers.<pod>_<namespace>_<container>-<id>.log
+      [OUTPUT]
+          Name cloudwatch_logs
+          Match_Regex ^kube\.var\.log\.containers\.[^_]+_({{ join "|" . }})_.*$
+          region ru-6
+          endpoint ru-6.logs.selcloud.ru
+          log_group_name k8s/unmatched
+          log_group_template k8s/$kubernetes['namespace_name']
+          log_stream_name _all
+          auto_create_group On
+          Retry_Limit 5
+      {{- end }}

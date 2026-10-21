@@ -1,0 +1,15 @@
+# Values подчарта coroot/coroot-operator лежат под ключом coroot-operator.
+# Релиз: coroot-operator, namespace: coroot. Порядок установки и удаления — в README.md.
+coroot-operator:
+  rbac:
+    # Убирает secrets из ClusterRole оператора: доступ к Secret — только в namespace релиза
+    # (Role coroot-operator-secrets), у оператора env DENY_GLOBAL_SECRETS=true.
+    # Следствие: CR Coroot должен лежать в том же namespace, что и оператор.
+    denyGlobalSecrets: true
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
