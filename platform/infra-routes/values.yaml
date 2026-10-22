@@ -1,0 +1,81 @@
+# Релиз: infra-routes, namespace: infra. Порядок установки и как добавить сайт — в README.md.
+# Объекты созданы вручную 2026-10-13…21 и переданы релизу без изменения spec.
+
+# Service типа ExternalName — бэкенды IngressRoute (бакеты S3 Селектела, сайты Yandex Object Storage).
+# Traefik ходит на них, потому что в platform/traefik включён allowExternalNameServices.
+externalServices:
+  - name: avatars-joinrpg-s3
+    externalName: 86769f80-9380-47c3-a56d-422db2e1d383.selstorage.ru
+    ports:
+      - name: https
+        port: 443
+  - name: avatars-dev-joinrpg-s3
+    externalName: 0e78dc77-b7f4-4321-8166-223ea3021027.selstorage.ru
+    ports:
+      - name: https
+        port: 443
+  - name: docs-joinrpg-s3
+    externalName: docs.joinrpg.ru.website.yandexcloud.net
+    ports:
+      - name: https
+        port: 443
+      - name: http2
+        port: 80
+  - name: docs-dev-joinrpg-s3
+    externalName: docs.dev.joinrpg.ru.website.yandexcloud.net
+    ports:
+      - name: https
+        port: 443
+      - name: http2
+        port: 80
+  - name: rpg-s3
+    externalName: 3d351f22-a839-4fed-8444-89790b6c61ec.selstorage.ru
+    ports:
+      - name: https
+        port: 443
+  # Ни один маршрут не использует (2026-10-23) — оставлен по решению Никиты.
+  - name: joinrpg-s3
+    externalName: 976e0402-ccae-44c3-b683-823b5a7ab123.selstorage.ru
+    ports:
+      - name: https
+        port: 443
+
+# Редиректы на бакет: Middleware redirectRegex, 301 на адрес бакета с тем же путём.
+redirects:
+  - name: avatars-joinrpg-redirect
+    regex: '^https?://avatars\.joinrpg\.ru(/.*)$'
+    replacement: 'https://86769f80-9380-47c3-a56d-422db2e1d383.selstorage.ru${1}'
+  - name: avatars-dev-joinrpg-redirect
+    regex: '^https?://avatars.dev\.joinrpg\.ru(/.*)$'
+    replacement: 'https://0e78dc77-b7f4-4321-8166-223ea3021027.selstorage.ru${1}'
+
+# IngressRoute на entryPoint websecure. Сертификат:
+#   - tlsSecret задан — Secret в infra (выпускает cert-manager по листенеру Gateway с этим Secret);
+#   - не задан (tls: {}) — traefik берёт сертификат по SNI из листенера Gateway с этим именем
+#     (platform/gateway). Нет листенера — отдаётся TRAEFIK DEFAULT CERT (так сейчас у rpg.ru).
+# service.kind — только если задан в живом объекте (для пустого diff при переносе).
+ingressRoutes:
+  - name: avatars-joinrpg-ru
+    host: avatars.joinrpg.ru
+    priority: 100
+    middlewares: [avatars-joinrpg-redirect]
+    service: {name: avatars-joinrpg-s3, port: 443, scheme: https}
+  - name: avatars-dev-joinrpg-ru
+    host: avatars.dev.joinrpg.ru
+    priority: 100
+    middlewares: [avatars-dev-joinrpg-redirect]
+    service: {name: avatars-dev-joinrpg-s3, port: 443, scheme: https}
+  - name: docs-joinrpg-ru
+    host: docs.joinrpg.ru
+    tlsSecret: joinrpg-tls
+    service: {kind: Service, name: docs-joinrpg-s3, port: 80, scheme: http}
+  - name: docs-dev-joinrpg-ru
+    host: docs.dev.joinrpg.ru
+    tlsSecret: joinrpg-tls
+    service: {kind: Service, name: docs-dev-joinrpg-s3, port: 80, scheme: http}
+  # Страница-заглушка rpg.ru. Листенера на Gateway и сертификата нет — HTTPS с TRAEFIK DEFAULT CERT
+  # (2026-10-23, решение Никиты — пока не трогаем).
+  - name: rpg-maintenance
+    host: rpg.ru
+    priority: 100
+    service: {name: rpg-s3, port: 443, scheme: https}
