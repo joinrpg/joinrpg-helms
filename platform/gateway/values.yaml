@@ -9,9 +9,13 @@ gatewayClassName: traefik
 clusterIssuer: letsencrypt-prod
 
 # Листенер HTTP (entryPoint web traefik): HTTP-01 cert-manager и редирект на HTTPS.
+# Маршруты — только из infra (Same): https-redirect и временные HTTPRoute cert-manager (Certificate
+# лежат в infra). HTTPRoute приложений без sectionName иначе цепляются и к http и перебивают
+# редирект своим hostname — сайт открывается по HTTP.
 http:
   name: http
   port: 8000
+  allowedRoutesFrom: Same
 
 # Редирект HTTP → HTTPS (301) для всех имён — HTTPRoute https-redirect на листенере http.
 httpsRedirect: true
@@ -50,6 +54,10 @@ https:
     - name: dev-components.joinrpg
       hostname: dev-components.joinrpg.ru
       secret: joinrpg-tls
+    # До 2026-10-22 листенера не было: сайт работал только по HTTP (маршрут цеплялся к http).
+    - name: components.joinrpg
+      hostname: components.joinrpg.ru
+      secret: components-joinrpg-tls
     - name: dev.joinrpg
       hostname: dev.joinrpg.ru
       secret: joinrpg-tls

@@ -15,7 +15,7 @@ spec:
       protocol: HTTP
       allowedRoutes:
         namespaces:
-          from: All
+          from: {{ .Values.http.allowedRoutesFrom }}
     {{- range .Values.https.listeners }}
     - name: {{ required "https.listeners[].name обязателен" .name }}
       hostname: {{ required "https.listeners[].hostname обязателен" .hostname | quote }}
