@@ -58,4 +58,5 @@ helm upgrade --install infra-routes . -n infra
 ## Что нужно знать
 
 - **Сайты Yandex (`docs.*`) изредка не принимают подключение.** TCP-подключение из кластера к `*.website.yandexcloud.net` иногда не устанавливается (≈1–2 % попыток, бывает пачками; с любой ноды, 2026-10-23). Без защиты traefik ждал подключения до 30 с — зависшая страница, в access log `DownstreamStatus` 499/502. Поэтому у маршрутов `docs.*` — ServersTransport `short-dial` (`dialTimeout: 2s`) и Middleware `retry-on-connect-error` (3 попытки): неудачное подключение стоит ~2 с задержки. Retry повторяет запрос, только если бэкенд не ответил, — повтор после полученного ответа не делается.
+- **Новый Middleware или ServersTransport для уже работающего маршрута — в два `helm upgrade`:** сначала только объект, потом ссылка на него в маршруте. Если traefik получит маршрут раньше объекта, он выкидывает маршрут целиком (`servers transport not found` / `middleware ... does not exist` в логе) — сайт отдаёт 404, пока не подтянется объект (2026-10-23: ~30 с на `docs.joinrpg.ru`).
 - `helm uninstall infra-routes` удаляет все пять сайтов вместе с ExternalName.
