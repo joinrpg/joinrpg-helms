@@ -1,0 +1,61 @@
+# Values подчарта traefik/traefik лежат под ключом traefik.
+# Релиз: traefik, namespace: traefik. Порядок установки и риски — в README.md.
+# Здесь только отличия от значений по умолчанию чарта 41.7.1.
+traefik:
+  # Gateway API: Traefik — контроллер для GatewayClass traefik. Сам Gateway (infra/main)
+  # чартом traefik не создаётся.
+  gatewayClass:
+    enabled: true
+  gateway:
+    enabled: false
+  providers:
+    kubernetesGateway:
+      enabled: true
+    # Service типа ExternalName как бэкенд: IngressRoute в infra проксируют на бакеты S3
+    # Селектела и сайты Yandex Object Storage.
+    kubernetesCRD:
+      allowExternalNameServices: true
+    kubernetesIngress:
+      allowExternalNameServices: true
+
+  # Реальный IP клиента. Балансировщик Селектела (Octavia, TCP) передаёт его по PROXY protocol —
+  # аннотация Service loadbalancer.openstack.org/proxy-protocol (README.md, «Реальный IP клиента»).
+  # PROXY-заголовок принимается только от сети подов (10.10.0.0/16, SNAT kube-proxy при
+  # externalTrafficPolicy: Cluster) и подсети нод (192.168.0.0/24, балансировщик). Соединение
+  # без заголовка Traefik принимает как обычное — внутрикластерные запросы не ломаются.
+  # forwardedHeaders без trustedIPs: X-Forwarded-* от клиента отбрасываются, Traefik ставит свои
+  # с адресом из PROXY-заголовка — подделать IP заголовком нельзя.
+  ports:
+    web:
+      proxyProtocol:
+        trustedIPs:
+          - 10.10.0.0/16
+          - 192.168.0.0/24
+      forwardedHeaders:
+        insecure: false
+    websecure:
+      proxyProtocol:
+        trustedIPs:
+          - 10.10.0.0/16
+          - 192.168.0.0/24
+      forwardedHeaders:
+        insecure: false
+
+  # Балансировщик передаёт IP клиента PROXY-заголовком: контроллер облака пересоздаёт пулы 80/443
+  # с протоколом PROXY (несколько секунд простоя). ВНИМАНИЕ: любое изменение Service запускает
+  # EnsureLoadBalancer — слушатели без тегов на балансировщике контроллер удаляет; у ручных
+  # слушателей должен быть тег joindb-manual (README.md, «Ручные слушатели»).
+  service:
+    annotations:
+      loadbalancer.openstack.org/proxy-protocol: "true"
+
+  # Журнал запросов в stdout (JSON, поле ClientHost — IP клиента) → fluent-bit → Логи Селектела,
+  # группа k8s/traefik. Из заголовков пишется только User-Agent (поле request_User-Agent) — чтобы
+  # отличать ботов; остальные — нет (по умолчанию drop): в них куки и токены.
+  accessLog:
+    enabled: true
+    format: json
+    fields:
+      headers:
+        names:
+          User-Agent: keep

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: traefik
+description: Входной HTTP(S)-трафик кластера joinrpg — Traefik, контроллер Gateway API и балансировщик Селектела
+type: application
+version: 0.1.0
+dependencies:
+  - name: traefik
+    version: 41.7.1
+    repository: https://traefik.github.io/charts
