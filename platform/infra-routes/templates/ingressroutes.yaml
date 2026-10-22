@@ -1,0 +1,43 @@
+{{- range .Values.ingressRoutes }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`{{ required "ingressRoutes[].host обязателен" .host }}`)
+      {{- with .priority }}
+      priority: {{ . }}
+      {{- end }}
+      {{- with .middlewares }}
+      middlewares:
+        {{- range . }}
+        - name: {{ . }}
+          namespace: {{ $.Release.Namespace }}
+        {{- end }}
+      {{- end }}
+      services:
+        - {{- with .service.kind }}
+          kind: {{ . }}
+          {{- end }}
+          name: {{ .service.name }}
+          port: {{ .service.port }}
+          scheme: {{ .service.scheme }}
+          {{- with .service.serversTransport }}
+          serversTransport: {{ . }}
+          {{- end }}
+          passHostHeader: false
+  {{- if .tlsSecret }}
+  tls:
+    secretName: {{ .tlsSecret }}
+  {{- else }}
+  tls: {}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,3 @@
+# Скрипты запускаются bash в WSL: всегда LF, даже при core.autocrlf=true в Windows-git
+# (иначе bash падает на $'\r').
+*.sh text eol=lf

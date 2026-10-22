@@ -1,0 +1,13 @@
+{{- range .Values.serversTransports }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: {{ .name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+  forwardingTimeouts:
+    dialTimeout: {{ .dialTimeout }}
+{{- end }}

@@ -44,6 +44,8 @@ HTTPRoute без листенера со своим `hostname` получает 
 
 ## Как убрать домен
 
+Сначала проверить, что имя не используется IngressRoute из [`platform/infra-routes`](../infra-routes/README.md): листенеры `avatars.*` и `docs.*` нужны им ради сертификата, хотя HTTPRoute на них нет.
+
 Удалить элемент из `https.listeners` и `helm upgrade`. `Certificate` и Secret cert-manager **не удаляет** — убрать руками, если Secret больше никем не используется: `kubectl delete certificate,secret <secret> -n infra`.
 
 ## Редирект HTTP → HTTPS

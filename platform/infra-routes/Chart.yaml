@@ -1,0 +1,5 @@
+apiVersion: v2
+name: infra-routes
+description: Сайты-обёртки над бакетами в ns infra — IngressRoute traefik, Middleware и Service ExternalName
+type: application
+version: 0.1.0
