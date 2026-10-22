@@ -1,0 +1,20 @@
+# Релиз: cert-manager-issuers, namespace: cert-manager. Порядок установки — в README.md.
+# Ставится после релиза cert-manager: ClusterIssuer — CR, его CRD приходят оттуда.
+
+acme:
+  # Адрес аккаунта Let's Encrypt. В репозитории не хранится (он публичный) —
+  # передаётся при установке: --set acme.email=<адрес>. Без него рендер падает.
+  email: ""
+  server: https://acme-v02.api.letsencrypt.org/directory
+
+# ClusterIssuer, на который ссылается аннотация cert-manager.io/cluster-issuer на Gateway.
+name: letsencrypt-prod
+# Secret с ключом ACME-аккаунта (ns cert-manager). Создаёт сам cert-manager; при смене имени
+# будет зарегистрирован новый аккаунт.
+privateKeySecretName: letsencrypt-prod-key
+
+# Проверка HTTP-01: cert-manager вешает временный HTTPRoute на этот листенер Gateway.
+http01Gateway:
+  name: main
+  namespace: infra
+  sectionName: http

@@ -117,14 +117,7 @@ coroot.com/scrape-metrics: "true"
 coroot.com/metrics-port: "9402"
 ```
 
-cert-manager стоит отдельным helm-релизом `cert-manager` (ns `cert-manager`, чарт `jetstack/cert-manager` v1.21.2), не из этого репозитория; аннотации добавляются его `podAnnotations`:
-
-```bash
-helm repo add jetstack https://charts.jetstack.io --force-update
-helm upgrade cert-manager jetstack/cert-manager -n cert-manager --version v1.21.2 --reuse-values \
-  --set-string 'podAnnotations.coroot\.com/scrape-metrics=true' \
-  --set-string 'podAnnotations.coroot\.com/metrics-port=9402'
-```
+Аннотации заданы в `podAnnotations` чарта [`platform/cert-manager`](../cert-manager/values.yaml). Если их убрать, правила по сертификатам замолчат без ошибок: правило на отсутствующую метрику ничего не находит.
 
 ## Смена сроков хранения
 
