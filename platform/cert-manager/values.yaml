@@ -1,0 +1,21 @@
+# Values подчарта jetstack/cert-manager лежат под ключом cert-manager.
+# Релиз: cert-manager, namespace: cert-manager. Порядок установки — в README.md.
+cert-manager:
+  # CRD ставятся этим релизом (в templates/ подчарта) с аннотацией helm.sh/resource-policy: keep:
+  # helm uninstall их не удаляет, а значит, не удаляет и Certificate/ClusterIssuer.
+  crds:
+    enabled: true
+
+  # Сертификаты для Gateway API: аннотация cert-manager.io/cluster-issuer на Gateway
+  # (infra/main) — cert-manager сам создаёт Certificate по каждому HTTPS-листенеру.
+  config:
+    apiVersion: controller.config.cert-manager.io/v1alpha1
+    kind: ControllerConfiguration
+    enableGatewayAPI: true
+
+  # Сбор метрик контроллера Coroot'ом (cluster-agent читает только coroot.com/*, не prometheus.io/*).
+  # На них держатся правила certificate-expiry и certificate-not-ready в platform/coroot — без
+  # аннотаций правила молчат.
+  podAnnotations:
+    coroot.com/scrape-metrics: "true"
+    coroot.com/metrics-port: "9402"
