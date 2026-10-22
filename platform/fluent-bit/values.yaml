@@ -10,6 +10,7 @@ fluent-bit:
     - larp-dictionary
     - joinrpg-dev
     - joinrpg-prod
+    - traefik
 
   # Namespace, логи которых дополнительно пишутся в общий поток _all своей группы k8s/<namespace>:
   # весь namespace одной лентой в панели Логов. Каждый должен быть и в списке namespaces.
