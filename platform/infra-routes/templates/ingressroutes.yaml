@@ -30,6 +30,9 @@ spec:
           name: {{ .service.name }}
           port: {{ .service.port }}
           scheme: {{ .service.scheme }}
+          {{- with .service.serversTransport }}
+          serversTransport: {{ . }}
+          {{- end }}
           passHostHeader: false
   {{- if .tlsSecret }}
   tls:

@@ -36,7 +36,7 @@ IngressRoute не выпускает сертификаты сам. HTTPS раб
 
 1. DNS — A-запись на балансировщик traefik; листенер с этим именем и Secret — в [`platform/gateway`](../gateway/README.md) (иначе нет сертификата).
 2. Бэкенд — элемент `externalServices` (имя бакета или сайта и порт).
-3. Маршрут — элемент `ingressRoutes`: `host`, `service` (`name`, `port`, `scheme`: `https` для бакетов Селектела, `http` для сайтов Yandex), при необходимости `middlewares`, `priority`, `tlsSecret`.
+3. Маршрут — элемент `ingressRoutes`: `host`, `service` (`name`, `port`, `scheme`: `https` для бакетов Селектела, `http` для сайтов Yandex; для внешних бэкендов — `serversTransport: short-dial`), при необходимости `middlewares` (`retry-on-connect-error` для внешних бэкендов), `priority`, `tlsSecret`.
 4. Редирект вместо прокси — элемент `redirects` и его имя в `middlewares` маршрута.
 5. `helm upgrade` (ниже), проверка — `curl -sv https://<имя>/` (сертификат Let's Encrypt, нужный код ответа).
 
@@ -57,5 +57,5 @@ helm upgrade --install infra-routes . -n infra
 
 ## Что нужно знать
 
-- **Сайты Yandex (`docs.*`) иногда зависают.** TCP-подключение из кластера к `*.website.yandexcloud.net` изредка не устанавливается (≈1–2 % попыток, бывает пачками; с любой ноды, 2026-10-23). Traefik ждёт подключения до 30 с — пользователь видит зависшую страницу, в access log `DownstreamStatus` 499/502 при `ServiceAddr` `*.website.yandexcloud.net:80`.
+- **Сайты Yandex (`docs.*`) изредка не принимают подключение.** TCP-подключение из кластера к `*.website.yandexcloud.net` иногда не устанавливается (≈1–2 % попыток, бывает пачками; с любой ноды, 2026-10-23). Без защиты traefik ждал подключения до 30 с — зависшая страница, в access log `DownstreamStatus` 499/502. Поэтому у маршрутов `docs.*` — ServersTransport `short-dial` (`dialTimeout: 2s`) и Middleware `retry-on-connect-error` (3 попытки): неудачное подключение стоит ~2 с задержки. Retry повторяет запрос, только если бэкенд не ответил, — повтор после полученного ответа не делается.
 - `helm uninstall infra-routes` удаляет все пять сайтов вместе с ExternalName.

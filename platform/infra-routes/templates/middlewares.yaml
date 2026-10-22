@@ -13,3 +13,17 @@ spec:
     replacement: {{ .replacement | squote }}
     permanent: true
 {{- end }}
+{{- with .Values.retry }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+  retry:
+    attempts: {{ .attempts }}
+    initialInterval: {{ .initialInterval }}
+{{- end }}

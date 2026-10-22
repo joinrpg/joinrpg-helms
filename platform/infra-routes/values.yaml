@@ -49,6 +49,18 @@ redirects:
     regex: '^https?://avatars.dev\.joinrpg\.ru(/.*)$'
     replacement: 'https://0e78dc77-b7f4-4321-8166-223ea3021027.selstorage.ru${1}'
 
+# Повтор запроса, если не удалось подключиться к бэкенду (до получения ответа — безопасно и для POST).
+# Вместе с коротким dialTimeout: сайты Yandex изредка не принимают TCP-подключение (README.md).
+retry:
+  name: retry-on-connect-error
+  attempts: 3
+  initialInterval: 100ms
+
+# ServersTransport — параметры подключения traefik к бэкенду; по умолчанию dialTimeout 30s.
+serversTransports:
+  - name: short-dial
+    dialTimeout: 2s
+
 # IngressRoute на entryPoint websecure. Сертификат:
 #   - tlsSecret задан — Secret в infra (выпускает cert-manager по листенеру Gateway с этим Secret);
 #   - не задан (tls: {}) — traefik берёт сертификат по SNI из листенера Gateway с этим именем
@@ -68,11 +80,13 @@ ingressRoutes:
   - name: docs-joinrpg-ru
     host: docs.joinrpg.ru
     tlsSecret: joinrpg-tls
-    service: {kind: Service, name: docs-joinrpg-s3, port: 80, scheme: http}
+    middlewares: [retry-on-connect-error]
+    service: {kind: Service, name: docs-joinrpg-s3, port: 80, scheme: http, serversTransport: short-dial}
   - name: docs-dev-joinrpg-ru
     host: docs.dev.joinrpg.ru
     tlsSecret: joinrpg-tls
-    service: {kind: Service, name: docs-dev-joinrpg-s3, port: 80, scheme: http}
+    middlewares: [retry-on-connect-error]
+    service: {kind: Service, name: docs-dev-joinrpg-s3, port: 80, scheme: http, serversTransport: short-dial}
   # Страница-заглушка rpg.ru. Листенера на Gateway и сертификата нет — HTTPS с TRAEFIK DEFAULT CERT
   # (2026-10-23, решение Никиты — пока не трогаем).
   - name: rpg-maintenance
