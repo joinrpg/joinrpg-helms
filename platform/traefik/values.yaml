@@ -41,6 +41,14 @@ traefik:
       forwardedHeaders:
         insecure: false
 
+  # Балансировщик передаёт IP клиента PROXY-заголовком: контроллер облака пересоздаёт пулы 80/443
+  # с протоколом PROXY (несколько секунд простоя). ВНИМАНИЕ: любое изменение Service запускает
+  # EnsureLoadBalancer — слушатели без тегов на балансировщике контроллер удаляет; у ручных
+  # слушателей должен быть тег joindb-manual (README.md, «Ручные слушатели»).
+  service:
+    annotations:
+      loadbalancer.openstack.org/proxy-protocol: "true"
+
   # Журнал запросов в stdout (JSON, поле ClientHost — IP клиента) → fluent-bit → Логи Селектела,
   # группа k8s/traefik. Заголовки запросов не пишутся (по умолчанию drop): в них куки и токены.
   accessLog:

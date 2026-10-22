@@ -1,0 +1,5 @@
+apiVersion: v2
+name: gateway
+description: Gateway infra/main кластера joinrpg — листенеры HTTP/HTTPS для всех сайтов и редирект на HTTPS
+type: application
+version: 0.1.0

@@ -1,0 +1,36 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+spec:
+  gatewayClassName: {{ .Values.gatewayClassName }}
+  listeners:
+    - name: {{ .Values.http.name }}
+      port: {{ .Values.http.port }}
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+    {{- range .Values.https.listeners }}
+    - name: {{ required "https.listeners[].name обязателен" .name }}
+      hostname: {{ required "https.listeners[].hostname обязателен" .hostname | quote }}
+      port: {{ $.Values.https.port }}
+      protocol: HTTPS
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              {{- toYaml $.Values.https.namespaceSelector | nindent 14 }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: {{ required "https.listeners[].secret обязателен" .secret }}
+    {{- end }}

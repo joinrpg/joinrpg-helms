@@ -1,0 +1,88 @@
+# Релиз: gateway, namespace: infra. Порядок установки и как добавить домен — в README.md.
+# GatewayClass traefik создаёт релиз traefik (platform/traefik).
+
+name: main
+gatewayClassName: traefik
+
+# cert-manager (gateway-shim) выпускает Certificate на каждый Secret из листенеров ниже,
+# в сертификат попадают hostname всех листенеров с этим Secret. ClusterIssuer — platform/cert-manager-issuers.
+clusterIssuer: letsencrypt-prod
+
+# Листенер HTTP (entryPoint web traefik): HTTP-01 cert-manager и редирект на HTTPS.
+http:
+  name: http
+  port: 8000
+
+# Редирект HTTP → HTTPS (301) для всех имён — HTTPRoute https-redirect на листенере http.
+httpsRedirect: true
+
+# HTTPS-листенеры (entryPoint websecure traefik), TLS терминируется на traefik.
+# Маршруты (HTTPRoute) принимаются из namespace с меткой gateway-access=shared.
+https:
+  port: 8443
+  namespaceSelector:
+    gateway-access: shared
+  # Порядок не важен для работы, но при переносе совпадает с живым объектом — чтобы diff был пустым.
+  # Новый домен: дописать элемент (name — уникальное имя листенера, secret — Secret в infra,
+  # общий для нескольких имён или новый) и helm upgrade. Листенеры правятся только здесь (G165).
+  listeners:
+    - name: www.joinrpg
+      hostname: www.joinrpg.ru
+      secret: joinrpg-tls
+    - name: joinrpg
+      hostname: joinrpg.ru
+      secret: joinrpg-tls
+    - name: kogda-igra.tsarevs.ru
+      hostname: kogda-igra.tsarevs.ru
+      secret: tsarevs-tls
+    - name: kogda-igra.ru
+      hostname: kogda-igra.ru
+      secret: kogda-igra-ru-tls
+    - name: dev.kogda-igra.ru
+      hostname: dev.kogda-igra.ru
+      secret: kogda-igra-ru-tls
+    - name: id.joinrpg
+      hostname: id.joinrpg.ru
+      secret: id-joinrpg-tls
+    - name: devid.joinrpg
+      hostname: devid.joinrpg.ru
+      secret: joinrpg-tls
+    - name: dev-components.joinrpg
+      hostname: dev-components.joinrpg.ru
+      secret: joinrpg-tls
+    - name: dev.joinrpg
+      hostname: dev.joinrpg.ru
+      secret: joinrpg-tls
+    - name: dev.joinrpg.tsarevs.ru
+      hostname: dev.joinrpg.tsarevs.ru
+      secret: tsarevs-tls
+    - name: dev.id.joinrpg.tsarevs.ru
+      hostname: dev.id.joinrpg.tsarevs.ru
+      secret: tsarevs-tls
+    - name: joinrpg.tsarevs.ru
+      hostname: joinrpg.tsarevs.ru
+      secret: tsarevs-tls
+    - name: id.joinrpg.tsarevs.ru
+      hostname: id.joinrpg.tsarevs.ru
+      secret: tsarevs-tls
+    - name: larp-handbook.ru
+      hostname: larp-handbook.ru
+      secret: larp-handbook-ru-tls
+    - name: larp-dictionary.tsarevs.ru
+      hostname: larp-dictionary.tsarevs.ru
+      secret: tsarevs-tls
+    - name: avatars.joinrpg.ru
+      hostname: avatars.joinrpg.ru
+      secret: avatars-joinrpg-tls
+    - name: avatars.dev.joinrpg.ru
+      hostname: avatars.dev.joinrpg.ru
+      secret: avatars-dev-joinrpg-tls
+    - name: docs.dev.joinrpg.ru
+      hostname: docs.dev.joinrpg.ru
+      secret: joinrpg-tls
+    - name: docs.joinrpg.ru
+      hostname: docs.joinrpg.ru
+      secret: joinrpg-tls
+    - name: coroot.joinrpg.ru
+      hostname: coroot.joinrpg.ru
+      secret: coroot-joinrpg-tls
