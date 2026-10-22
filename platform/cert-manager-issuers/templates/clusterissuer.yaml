@@ -1,0 +1,22 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  acme:
+    email: {{ required "acme.email обязателен: --set acme.email=<адрес>" .Values.acme.email | quote }}
+    server: {{ .Values.acme.server }}
+    privateKeySecretRef:
+      name: {{ .Values.privateKeySecretName }}
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: {{ .Values.http01Gateway.name }}
+                namespace: {{ .Values.http01Gateway.namespace }}
+                sectionName: {{ .Values.http01Gateway.sectionName }}

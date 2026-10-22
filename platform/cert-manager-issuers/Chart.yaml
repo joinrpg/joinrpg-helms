@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cert-manager-issuers
+description: ClusterIssuer Let's Encrypt для cert-manager кластера joinrpg (отдельно от релиза с CRD)
+type: application
+version: 0.1.0

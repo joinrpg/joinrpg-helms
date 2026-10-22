@@ -1,0 +1,9 @@
+apiVersion: v2
+name: cert-manager
+description: Выпуск и продление TLS-сертификатов (Let's Encrypt) для Gateway кластера joinrpg
+type: application
+version: 0.1.0
+dependencies:
+  - name: cert-manager
+    version: v1.21.2
+    repository: https://charts.jetstack.io
