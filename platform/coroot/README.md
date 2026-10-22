@@ -149,20 +149,16 @@ kubectl exec -n coroot coroot-clickhouse-shard-0-0 -c clickhouse-server -- click
 Как устроено:
 
 - HTTPRoute `coroot` (шаблон [`templates/httproute.yaml`](templates/httproute.yaml), блок `route` в [`values.yaml`](values.yaml)) цепляется к общему Gateway `infra/main` и ведёт на Service `coroot-coroot:8080`;
-- на Gateway `main` — listener `coroot.joinrpg.ru` (HTTPS, порт 8443, Secret `coroot-joinrpg-tls`). Gateway в репозиториях не описан, listener добавляется вручную (ниже);
+- на Gateway `main` — listener `coroot.joinrpg.ru` (HTTPS, порт 8443, Secret `coroot-joinrpg-tls`), задан в [`platform/gateway`](../gateway/README.md) (`https.listeners` в его `values.yaml`);
 - сертификат: по аннотации `cert-manager.io/cluster-issuer: letsencrypt-prod` на Gateway cert-manager сам создаёт `Certificate` `infra/coroot-joinrpg-tls` и продлевает его (Let's Encrypt, HTTP-01 через listener `http`);
 - редирект http → https — общий HTTPRoute `infra/https-redirect`;
 - маршруты принимаются только из namespace с меткой `gateway-access=shared` — она стоит на `coroot` вручную;
 - запись DNS `coroot.joinrpg.ru` — в `joinrpg-infrastructure`, слой `05-dns`.
 
-Listener и метка (один раз, до `helm upgrade` с маршрутом). Listener добавляется JSON-патчем в конец списка: `kubectl apply` файлом Gateway не делать — список listener'ов заменится целиком, и пропадут добавленные позже руками.
+Метка namespace (один раз, до `helm upgrade` с маршрутом). Listener `coroot.joinrpg.ru` уже есть в чарте `platform/gateway`; на чистом кластере релиз `gateway` ставится до маршрута. Править Gateway патчем или `kubectl apply` нельзя — правка пропадёт при `helm upgrade gateway` (README `platform/gateway`).
 
 ```bash
 kubectl label ns coroot gateway-access=shared
-
-PATCH='[{"op":"add","path":"/spec/listeners/-","value":{"name":"coroot.joinrpg.ru","hostname":"coroot.joinrpg.ru","port":8443,"protocol":"HTTPS","tls":{"mode":"Terminate","certificateRefs":[{"kind":"Secret","name":"coroot-joinrpg-tls"}]},"allowedRoutes":{"namespaces":{"from":"Selector","selector":{"matchLabels":{"gateway-access":"shared"}}}}}}]'
-kubectl patch gateway main -n infra --type=json -p "$PATCH" --dry-run=server -o yaml | grep -A12 'name: coroot.joinrpg.ru'
-kubectl patch gateway main -n infra --type=json -p "$PATCH"
 ```
 
 Проверка:

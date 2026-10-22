@@ -52,4 +52,4 @@ kubectl logs -n cert-manager deploy/cert-manager --tail=50
 - CRD ставятся этим релизом с аннотацией `helm.sh/resource-policy: keep`: `helm uninstall cert-manager` их не удаляет, а значит, не удаляет Certificate и ClusterIssuer. Удалять CRD руками — значит удалить все сертификаты кластера.
 - Хуки `startupapicheck` (`post-install`) выполняются только при первой установке; `helm get manifest` их не показывает, `helm template` — показывает (поэтому в `kubectl diff` — `--no-hooks`).
 - Новый HTTPS-листенер на Gateway `infra/main` со своим `certificateRefs` — cert-manager выпустит сертификат сам, `Certificate` руками не создаются. Выпуск — HTTP-01 через листенер `http` того же Gateway (параметры — в `cert-manager-issuers`).
-- Gateway `infra/main` в этом репозитории пока нет — правится руками.
+- Gateway `infra/main` и его листенеры — релиз [`platform/gateway`](../gateway/README.md). Листенер `http` принимает маршруты только из `infra`, поэтому `Certificate` должны лежать в `infra`: временный HTTPRoute для HTTP-01 cert-manager создаёт в namespace сертификата.
