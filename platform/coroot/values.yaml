@@ -309,12 +309,15 @@ spec:
       size: 20Gi
       className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
       reclaimPolicy: Retain
+    # По факту за 19–23.10: память ~1,2 GiB в среднем, пик ~1,5 GiB (при реквесте было 768Mi);
+    # CPU 244m в среднем, 341m p95. Реквесты — с запасом над фактом: при нехватке CPU на ноде
+    # доля ClickHouse пропорциональна реквесту. Лимит памяти — на рост и слияния; CPU без лимита.
     resources:
       requests:
-        cpu: 50m
-        memory: 768Mi
-      limits:
+        cpu: 350m
         memory: 2Gi
+      limits:
+        memory: 3Gi
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
