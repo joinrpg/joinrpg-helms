@@ -309,12 +309,14 @@ spec:
       size: 20Gi
       className: fast2.ru-6  # universal.ru-6 в кластере битый: типа тома universal.ru-6a нет (нужен universal2)
       reclaimPolicy: Retain
+    # Память по факту (2026-10-23): ~1,5 GiB при реквесте 768Mi — планировщик считал ноду
+    # свободнее, чем она есть. Реквест — с запасом над фактом, лимит — на рост и слияния.
     resources:
       requests:
         cpu: 50m
-        memory: 768Mi
-      limits:
         memory: 2Gi
+      limits:
+        memory: 3Gi
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
