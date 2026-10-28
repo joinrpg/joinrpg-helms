@@ -65,9 +65,12 @@ spec:
       applicationCategories:
         # Процессы хоста (_/rsyslog, _/networkd-dispatcher…) встроенными шаблонами
         # control-plane не покрыты и попадали в application — переносим все в control-plane.
+        # infra/* — fluent-bit: ошибки отправки в сервис Логи Селектела (502/504, обрывы
+        # соединения) — сбои внешнего сервиса, fluent-bit сам повторяет отправку.
         - name: control-plane
           customPatterns:
             - _/*
+            - infra/*
         - name: dev
           customPatterns:
             - kogda-dev/*
@@ -97,6 +100,12 @@ spec:
             objectivePercent: 95
             objectiveThreshold: 1s
           - applicationId: "joinrpg-prod:Deployment:joinrpg-idportal"
+            objectivePercent: 95
+            objectiveThreshold: 1s
+          # Серверная гистограмма node-agent для Apache/PHP пишет 1,6–5,9% запросов в сутки
+          # как > 10 с, по трейсам traefik таких 0,3–0,9% (медиана 28 мс) — грабля G156.
+          # С целью 99% это 21 ложный инцидент за 23–27.10.
+          - applicationId: "kogda-prod:Deployment:kogda-igra"
             objectivePercent: 95
             objectiveThreshold: 1s
 
@@ -138,11 +147,18 @@ spec:
             type: category
             categories:
               - application
+        # for 15m → 2h: .NET (portal, idportal, componentbook) после деплоя 30–70 мин
+        # набирает память — прогрев, а не утечка; алерт гас сам через 15–50 мин.
         - id: memory-leak
+          for: 2h
           selector:
             type: category
             categories:
               - application
+        # for 2m → 10m: деплой joinrpg-portal (maxSurge 0) — 1 из 2 подов недоступен 5–8 мин.
+        # Полный отказ приложения ловят SLO и instance-restarts.
+        - id: instance-availability
+          for: 10m
         # Сертификаты cert-manager (метрики контроллера cert-manager, порт 9402; собираются,
         # если на поде есть аннотации coroot.com/scrape-metrics и coroot.com/metrics-port — README.md).
         # cert-manager продлевает за 30 дней до истечения: меньше 21 дня — продление не

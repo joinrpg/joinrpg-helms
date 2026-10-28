@@ -17,10 +17,10 @@
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
 | PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
 | Хранение | метрики 30d, трейсы 7d, логи 7d, профили 3d (~400 MiB/сутки, при этих сроках ~4–8 GiB) |
-| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
-| Категории | `control-plane` дополнена шаблоном `_/*` (процессы хоста); `dev` — без уведомлений |
+| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`; `memory-leak` `for: 2h` — прогрев .NET после деплоя; `instance-availability` `for: 10m` — раскатка portal с `maxSurge: 0`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Категории | `control-plane` дополнена шаблонами `_/*` (процессы хоста) и `infra/*` (fluent-bit); `dev` — без уведомлений |
 | Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
-| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor) |
+| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor); `kogda-prod` `kogda-igra` — 95% / 1 с (ложные > 10 с в серверной гистограмме, G156) |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
 
 Версии образов (закреплены в [`values.yaml`](values.yaml)):
