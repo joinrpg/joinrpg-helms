@@ -260,7 +260,7 @@ DBaaS обнаруживается быстрее — после 2m выдерж
 
 Эти алерты не доказывают SQL-доступность, не определяют причину сбоя и не заменяют
 внешний мониторинг самого Coroot: если Coroot остановится, он не сможет отправить
-свои уведомления. CPU, память и SQL-проверки пока не добавлены.
+свои уведомления. CPU и память пока не добавлены. SQL-пробы описаны ниже.
 
 CRD оператора 1.10.6 поддерживает у `source.promql` только `expression`:
 поле `scope` из API-модели Coroot здесь использовать нельзя. Проверять рендер
@@ -275,6 +275,91 @@ CRD оператора 1.10.6 поддерживает у `source.promql` тол
 Применение этих правил — обычный `helm upgrade coroot ./platform/coroot -n coroot`
 после lint/template/diff и `--dry-run=server`. Изменение CR может перезапустить
 сервер Coroot для чтения конфигурации; ВМ MSSQL и DBaaS оно не меняет.
+
+## SQL-пробы MSSQL и PostgreSQL
+
+`sqlProbes` включает один Deployment `coroot-sql-probes` с `sql_exporter` 0.24.13,
+закреплённым digest. Две цели из Kubernetes выполняют `SELECT 1 AS success`:
+
+| target | Подключение | База |
+|---|---|---|
+| `mssql` | `192.168.0.2:1433` | `joinrpg-prod` |
+| `postgres` | master DNS Kaitlyn, PgBouncer `5433` | `joinrpg_prod_notifications` |
+
+Отдельные пользователи `coroot_probe` имеют подключение к нужной базе, без
+выданных пробой прав чтения/записи таблиц. PostgreSQL пользователь создаётся через
+панель Selectel (G155), без административных ролей. MSSQL login и database user
+создаются вручную, `GRANT CONNECT`. Учётки приложений и `sa` не используются.
+Проверка 07.11.2026: обе учётки выполнили SELECT 1 через TCP-соединения из
+`coroot-cluster-agent`. Пароли не выводились и не сохранялись в проверочные файлы.
+
+В `secrets.env` заполнить `MSSQL_PROBE_USER`, `MSSQL_PROBE_PASSWORD`,
+`POSTGRES_PROBE_USER`, `POSTGRES_PROBE_PASSWORD`.
+Скрипт [`build-sql-probe-secret.py`](scripts/build-sql-probe-secret.py) кодирует
+учётные данные в URI и готовит Secret `coroot-sql-probes` с полным JSON-конфигом
+в ключе `sql_exporter.yml` (JSON совместим с YAML). По умолчанию выводится только
+результат проверки конфигурации. `--secret-stdout` предназначен **только для pipe**
+в kubectl: вывод содержит секреты, его нельзя публиковать или сохранять в Git.
+В интерактивный TTY скрипт Secret не выводит. Сам скрипт ничего не применяет.
+
+Сбор через аннотации `coroot.com/*`, без Service/Ingress. NetworkPolicy разрешает
+вход только cluster-agent в namespace coroot. Pod без root и service-account token,
+с read-only rootfs, requests 10m/32Mi и memory limit128Mi. Secret смонтирован read-only,
+в ConfigMap/values паролей нет. Пробы pod проверяют процесс по TCP, не базы данных.
+
+На каждом scrape выполняются запросы без кеша; соединения старше 1s не переиспользуются,
+чтобы на следующем scrape снова проверить вход и разрешение DNS. К каждой цели не
+больше одного соединения, общий timeout scrape5s. SQL выполняется только на чтение.
+TLS шифруется, но CA/hostname не проверяются: PostgreSQL `sslmode=require`, MSSQL
+`encrypt=true&TrustServerCertificate=true` (как в действующем подключении portal).
+Доверенную CA для обеих БД можно подключить отдельным изменением.
+
+`db_sql_probe_success{target="mssql|postgres"}=1` означает успешный SELECT1.
+Экспортёр также отдаёт `up{target="…"}` — это проверка подключения/ping, отдельно
+от результата SQL. Два новых critical правила `mssql-sql-probe` и `postgres-sql-probe`
+ловят `up=0` в течение2m либо отсутствие результата SELECT1 за3m с выдержкой ещё2m.
+Пустые метрики не трактуются как успех. Эти пробы не проверяют другие базы, права
+пользователей приложений, запись или реальные бизнес-запросы.
+
+Применение в WSL из корня репозитория; Secret не печатается и не записывается на диск:
+
+```bash
+(
+set -euo pipefail
+export KUBECONFIG=~/.kube/joinrpg.yaml
+source <(tr -d '\r' < secrets.env)
+python3 -B platform/coroot/scripts/build-sql-probe-secret.py
+python3 -B platform/coroot/scripts/build-sql-probe-secret.py --secret-stdout | kubectl apply -f -
+helm lint ./platform/coroot -n coroot
+helm upgrade coroot ./platform/coroot -n coroot --dry-run=server
+helm upgrade coroot ./platform/coroot -n coroot
+kubectl rollout status deployment/coroot-sql-probes -n coroot --timeout=180s
+kubectl rollout status statefulset/coroot-coroot -n coroot --timeout=180s
+)
+```
+
+После1–2мин проверить в ClickHouse:
+
+```bash
+kubectl exec -i -n coroot coroot-clickhouse-shard-0-0 -c clickhouse-server -- \
+  clickhouse-client --readonly=1 -d coroot_0r4fqpy1 <<'SQL'
+SELECT Labels['target'] AS target, argMax(Value, Timestamp) AS success,
+       max(Timestamp) AS last_seen
+FROM metrics
+WHERE Timestamp > now() - INTERVAL 2 MINUTE AND MetricName = 'db_sql_probe_success'
+GROUP BY target ORDER BY target FORMAT PrettyCompact;
+SQL
+```
+
+Ожидаются две строки со значением1 и свежим временем. После ротации Secret нужен
+`kubectl rollout restart deployment/coroot-sql-probes -n coroot`: конфиг читается
+при старте, автоматическая перезагрузка не включена. Если отключать `sqlProbes.enabled`,
+также отключить оба SQL-правила (`enabled: false`), иначе они сообщат о потере проб.
+Обновление Secret не меняет пользователей и пароли самих БД.
+
+Проверки: `python3 -B -m unittest discover -s platform/coroot/scripts -p 'test_*.py'`,
+`sql_exporter -config.check` на закреплённом образе, строгая server dry-run Helm-манифестов.
+Документация: [SQL Exporter](https://github.com/burningalchemist/sql_exporter/tree/0.24.13).
 
 ## Смена сроков хранения
 

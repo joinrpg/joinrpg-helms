@@ -1,0 +1,98 @@
+{{- if .Values.sqlProbes.enabled }}
+{{- $name := printf "%s-sql-probes" .Release.Name }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coroot-sql-probes
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: coroot-sql-probes
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        coroot.com/scrape-metrics: "true"
+        coroot.com/metrics-port: "9399"
+        coroot.com/metrics-path: /metrics
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: exporter
+          image: {{ .Values.sqlProbes.image | quote }}
+          args:
+            - -config.file=/config/sql_exporter.yml
+            - -web.listen-address=:9399
+          ports:
+            - name: http
+              containerPort: 9399
+          resources:
+            {{- toYaml .Values.sqlProbes.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # Пробы pod проверяют процесс, а не SQL: сбой БД не вызывает рестарты.
+          startupProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 2
+            failureThreshold: 15
+          readinessProbe:
+            tcpSocket: {port: http}
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ .Values.sqlProbes.secretName }}
+            defaultMode: 0440
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: coroot-sql-probes
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: coroot-cluster-agent
+              app.kubernetes.io/part-of: coroot
+      ports:
+        - protocol: TCP
+          port: 9399
+{{- end }}

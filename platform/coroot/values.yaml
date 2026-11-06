@@ -25,6 +25,19 @@ dbaasMetrics:
     limits:
       memory: 64Mi
 
+# SQL SELECT 1 из Kubernetes. Перед применением создать Secret скриптом из README.
+sqlProbes:
+  enabled: true
+  # sql_exporter 0.24.13, digest проверен в Docker Hub.
+  image: burningalchemist/sql_exporter@sha256:befda03e0eae3f0c9b9dd0e5e5b968152f50e44dbdc04c1b68370c6fcbda2b7d
+  secretName: coroot-sql-probes
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
 # spec ресурса Coroot (CRD coroots.coroot.com, оператор 1.10.6) — передаётся в шаблон как есть.
 # Релиз: coroot, namespace: coroot, имя ресурса: coroot. Порядок установки — в README.md.
 #
@@ -269,6 +282,34 @@ spec:
           templates:
             summary: "PostgreSQL Kaitlyn: ошибка сбора или нет метрик одной из двух нод"
             description: "Ошибка scrape сохраняется 2 минуты либо за 5 минут есть данные менее двух нод и условие держится ещё 2 минуты. Проверить coroot-dbaas-metrics, токен, DNS/TLS и API Selectel. Две ноды — ожидаемый состав Kaitlyn; при изменении состава обновить правило. Это не проверка SQL-доступности."
+        - id: mssql-sql-probe
+          name: "MSSQL SQL probe"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              expression: >-
+                (max(up{namespace="coroot",pod=~"coroot-sql-probes-.*",target="mssql"}) == 0)
+                or max(absent_over_time(db_sql_probe_success{namespace="coroot",pod=~"coroot-sql-probes-.*",target="mssql"}[3m]))
+          for: 2m
+          severity: critical
+          templates:
+            summary: "MSSQL: SQL-проба joinrpg-prod неуспешна или её результаты не поступают"
+            description: "SELECT 1 под coroot_probe из Kubernetes к 192.168.0.2:1433. Проверить SQL Server, сеть, учётку/Secret и coroot-sql-probes. Ошибка подключения держится 2m; отсутствие результата — 3m плюс 2m. Проба не проверяет запросы и права пользователя приложения."
+        - id: postgres-sql-probe
+          name: "PostgreSQL SQL probe"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              expression: >-
+                (max(up{namespace="coroot",pod=~"coroot-sql-probes-.*",target="postgres"}) == 0)
+                or max(absent_over_time(db_sql_probe_success{namespace="coroot",pod=~"coroot-sql-probes-.*",target="postgres"}[3m]))
+          for: 2m
+          severity: critical
+          templates:
+            summary: "PostgreSQL: SQL-проба joinrpg_prod_notifications неуспешна или её результаты не поступают"
+            description: "SELECT 1 под coroot_probe из Kubernetes через master DNS Kaitlyn и PgBouncer:5433. Проверить DBaaS, пулер, DNS, учётку/Secret и coroot-sql-probes. Ошибка подключения держится 2m; отсутствие результата — 3m плюс 2m. Другие базы и пользовательские запросы не проверяются."
         # Сертификаты cert-manager (метрики контроллера cert-manager, порт 9402; собираются,
         # если на поде есть аннотации coroot.com/scrape-metrics и coroot.com/metrics-port — README.md).
         # cert-manager продлевает за 30 дней до истечения: меньше 21 дня — продление не
