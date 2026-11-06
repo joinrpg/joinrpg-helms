@@ -109,6 +109,10 @@ kubectl logs -n traefik deploy/traefik --since=5m | grep -o '"ClientHost":"[^"]*
 
 JSON в stdout пода, в Логах Селектела — группа `k8s/traefik`, поток `traefik`. Полезные поля: `ClientHost` (IP клиента), `RequestHost`, `RequestMethod`, `RequestPath`, `DownstreamStatus`, `Duration` (нс), `RouterName`, `request_User-Agent`. Из заголовков пишется только `User-Agent`: в остальных куки и токены.
 
+## Метрики
+
+Prometheus на порту 9100 (`/metrics`), собирает Coroot по аннотациям пода `coroot.com/*` — `prometheus.io/*` cluster-agent Coroot не читает. Метрики по сервисам (`traefik_service_requests_total`, `traefik_service_request_duration_seconds_bucket`, метка `service`) — задержка и ошибки сайтов со стороны клиента для дашборда «Сайты» в Coroot. Бакеты задержки: 0.025–10 с. Смена аннотаций или бакетов — перезапуск пода traefik (новый под поднимается раньше, чем гаснет старый).
+
 ## Установка и обновление
 
 Из каталога чарта, `KUBECONFIG` указывает на кластер `joinrpg`. Путь к чарту — абсолютный (G152).

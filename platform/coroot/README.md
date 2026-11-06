@@ -16,11 +16,11 @@
 | Агенты | DaemonSet `coroot-node-agent` (по поду на ноде), Deployment `coroot-cluster-agent` |
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
 | PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
-| Хранение | метрики 30d, трейсы 7d, логи 7d, профили 3d (~400 MiB/сутки, при этих сроках ~4–8 GiB) |
-| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
-| Категории | `control-plane` дополнена шаблоном `_/*` (процессы хоста); `dev` — без уведомлений |
+| Хранение | метрики 30d, трейсы 7d, логи 30d, профили 14d (по замерам 2026-11-06 прогноз занятого диска ~8–9 GiB; бюджет с запасом ~10–12 GiB из 20Gi) |
+| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`; `memory-leak` `for: 2h` — прогрев .NET после деплоя; `instance-availability` `for: 10m` — раскатка portal с `maxSurge: 0`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Категории | `control-plane` дополнена шаблонами `_/*` (процессы хоста) и `infra/*` (fluent-bit); `dev` — без уведомлений |
 | Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
-| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor) |
+| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor); `kogda-prod` `kogda-igra` — 95% / 1 с (ложные > 10 с в серверной гистограмме, G156) |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
 
 Версии образов (закреплены в [`values.yaml`](values.yaml)):
@@ -31,6 +31,16 @@
 | node-agent | `ghcr.io/coroot/coroot-node-agent:1.36.4` |
 | cluster-agent | `ghcr.io/coroot/coroot-cluster-agent:1.11.6` |
 | ClickHouse, Keeper | зашиты в оператор (меняются вместе с ним) |
+
+## Пользовательские дашборды
+
+JSON дашбордов хранится в [`dashboards/`](dashboards/README.md), синхронизация —
+[`scripts/sync-dashboard.py`](scripts/sync-dashboard.py). Это отдельная команда
+через API Coroot 1.27.4, не часть Helm-релиза. По умолчанию скрипт показывает план,
+запись выполняется с `--apply`. Перед обновлением сохраняется локальная резервная
+копия. Авторизация пользовательская, ключи агентов для неё не подходят.
+Доступны дашборды MSSQL, самого мониторинга, prod-приложений и запаса ресурсов
+Kubernetes-кластера. Команды пакетного применения — в инструкции `dashboards/`.
 
 ## Secret `coroot-admin`
 
@@ -121,18 +131,16 @@ coroot.com/metrics-port: "9402"
 
 ## Смена сроков хранения
 
-`metricsTTL`, `tracesTTL`, `logsTTL`, `profilesTTL` в `values.yaml` действуют только на **новые** таблицы: Coroot создаёт их через `CREATE TABLE IF NOT EXISTS ... TTL`, существующие не меняет. После `helm upgrade` сроки уже созданных таблиц меняются вручную, в секундах (1d = 86400). Пример — сроки traces/logs 7d, metrics 30d; таблицы профилей (`profiling_*`) — по тому же образцу:
+`metricsTTL`, `tracesTTL`, `logsTTL`, `profilesTTL` в `values.yaml` действуют только на **новые** таблицы: Coroot создаёт их через `CREATE TABLE IF NOT EXISTS ... TTL`, существующие не меняет (G157). После `helm upgrade` сроки уже созданных таблиц меняются вручную, в секундах (1d = 86400). Ниже переход логов с 7d на 30d и профилей с 3d на 14d; TTL метрик (30d) и трейсов (7d) не меняется. Уже удалённая история не восстанавливается.
 
 ```bash
 kubectl exec -i -n coroot coroot-clickhouse-shard-0-0 -c clickhouse-server -- \
   clickhouse-client -d coroot_0r4fqpy1 --multiquery --materialize_ttl_after_modify=0 <<'EOF'
-ALTER TABLE metrics MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(2592000);
-ALTER TABLE otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(604800);
-ALTER TABLE otel_traces_histogram MODIFY TTL Timestamp + toIntervalSecond(604800);
-ALTER TABLE otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalSecond(604800);
-ALTER TABLE otel_traces_service_name MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(604800);
-ALTER TABLE otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(604800);
-ALTER TABLE otel_logs_service_name_severity_text MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(604800);
+ALTER TABLE otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalSecond(2592000);
+ALTER TABLE otel_logs_service_name_severity_text MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(2592000);
+ALTER TABLE profiling_stacks MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(1209600);
+ALTER TABLE profiling_samples MODIFY TTL toDateTime(Start) + toIntervalSecond(1209600);
+ALTER TABLE profiling_profiles MODIFY TTL toDateTime(LastSeen) + toIntervalSecond(1209600);
 EOF
 
 # проверка: интервал у каждой таблицы

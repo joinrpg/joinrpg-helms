@@ -1,0 +1,316 @@
+{
+  "name": "Кластер: ресурсы",
+  "description": "Факт и requests по Kubernetes-нодам, Pending-поды и агрегированный запас N-1. Управляется из joinrpg-helms.",
+  "config": {
+    "groups": [
+      {
+        "name": "Состояние нод",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Ноды Ready: 1 — да, 0 — нет",
+            "description": "Только существующие ряды kube_node_status_condition. Исчезновение ноды не превращается в 0.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (node) (kube_node_status_condition{condition=\"Ready\",status=\"true\"})",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Pending-поды по namespace",
+            "description": "Показывает реальное значение phase Pending, не возраст ожидания.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (namespace) (kube_pod_status_phase{phase=\"Pending\"})",
+                    "legend": "{{namespace}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "CPU",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Фактическая загрузка CPU, %",
+            "description": "CPU без idle и iowait. Привязка к нодам по system_uuid: machine_id у наших нод совпадает.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "(100 * sum by (system_uuid) (rate(node_resources_cpu_usage_seconds_total{mode!~\"idle|iowait\"}[5m])) / max by (system_uuid) (node_resources_cpu_logical_cores)) * on (system_uuid) group_left (node) max by (system_uuid,node) (kube_node_info)",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "CPU requests к allocatable, %",
+            "description": "Только Pending/Running поды. Не учитывает все особенности расчёта scheduler: init-контейнеры, overhead, ограничения размещения.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "100 * sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"} * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~\"Pending|Running\"} > 0)) / max by (node) (kube_node_status_allocatable{resource=\"cpu\"})",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Свободные CPU requests, ядра",
+            "description": "Allocatable минус requests Pending/Running подов, не фактическая загрузка.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (node) (kube_node_status_allocatable{resource=\"cpu\"}) - sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"} * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~\"Pending|Running\"} > 0))",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Агрегированный CPU-запас N-1, ядра",
+            "description": "Сумма allocatable минус самая большая нода и все текущие requests. Отрицательное значение — агрегированного запаса нет. Положительное не гарантирует перепланирование: важны размеры подов, зоны дисков, affinity и прочие ограничения.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum(max by (node) (kube_node_status_allocatable{resource=\"cpu\"})) - max(max by (node) (kube_node_status_allocatable{resource=\"cpu\"})) - sum(sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"} * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~\"Pending|Running\"} > 0)))",
+                    "legend": "Запас после потери крупнейшей ноды",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Память",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Использованная память нод, %",
+            "description": "1 - MemAvailable/MemTotal, освобождаемый кэш не считается занятой памятью.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "(100 * (1 - max by (system_uuid) (node_resources_memory_available_bytes) / max by (system_uuid) (node_resources_memory_total_bytes))) * on (system_uuid) group_left (node) max by (system_uuid,node) (kube_node_info)",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Доступная память нод, GiB",
+            "description": "MemAvailable, только Kubernetes-ноды. ВМ MSSQL исключается join с kube_node_info.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "(max by (system_uuid) (node_resources_memory_available_bytes) / 1024^3) * on (system_uuid) group_left (node) max by (system_uuid,node) (kube_node_info)",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Memory requests к allocatable, %",
+            "description": "Только Pending/Running поды. Requests не равны фактической памяти и не являются лимитами.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "100 * sum by (node) (kube_pod_container_resource_requests{resource=\"memory\"} * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~\"Pending|Running\"} > 0)) / max by (node) (kube_node_status_allocatable{resource=\"memory\"})",
+                    "legend": "{{node}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Агрегированный запас памяти N-1, GiB",
+            "description": "Агрегированная оценка после потери крупнейшей по allocatable памяти ноды. Не гарантирует размещение всех подов.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "(sum(max by (node) (kube_node_status_allocatable{resource=\"memory\"})) - max(max by (node) (kube_node_status_allocatable{resource=\"memory\"})) - sum(sum by (node) (kube_pod_container_resource_requests{resource=\"memory\"} * on (uid) group_left () max by (uid) (kube_pod_status_phase{phase=~\"Pending|Running\"} > 0)))) / 1024^3",
+                    "legend": "Запас после потери крупнейшей ноды",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

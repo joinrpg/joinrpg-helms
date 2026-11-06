@@ -1,0 +1,242 @@
+{
+  "name": "MSSQL: ВМ и контейнер",
+  "description": "Ресурсы ВМ и контейнера MSSQL, сообщения в логах. Управляется из joinrpg-helms.",
+  "config": {
+    "groups": [
+      {
+        "name": "Память",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Доступная память ВМ, GiB",
+            "description": "MemAvailable: память, доступная приложениям с учётом освобождаемого кэша.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "node_resources_memory_available_bytes{machine_id=\"__MACHINE_ID__\"} / 1024^3",
+                    "legend": "Доступно",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Память контейнеров — RSS, GiB",
+            "description": "RSS не равен полному потреблению cgroup и не включает всю память eBPF. Docker memory limit MSSQL не равен MSSQL_MEMORY_LIMIT_MB.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "container_resources_memory_rss_bytes{machine_id=\"__MACHINE_ID__\",container_id=~\"/docker/(mssql2019|coroot-vm-node-agent-1|coroot-vm-fluent-bit-1)\"} / 1024^3",
+                    "legend": "{{container_id}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "CPU",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "CPU MSSQL, ядра",
+            "description": "1 — одно полностью занятое логическое ядро. ВМ имеет два ядра.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum(rate(container_resources_cpu_usage_seconds_total{machine_id=\"__MACHINE_ID__\",container_id=\"/docker/mssql2019\"}[5m]))",
+                    "legend": "MSSQL",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Диск",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Занятое место на файловой системе MSSQL, %",
+            "description": "Заполнение всей файловой системы с томом /var/opt/mssql, а не размер файлов БД.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "100 * container_resources_disk_used_bytes{machine_id=\"__MACHINE_ID__\",container_id=\"/docker/mssql2019\",mount_point=\"/var/opt/mssql\"} / container_resources_disk_size_bytes{machine_id=\"__MACHINE_ID__\",container_id=\"/docker/mssql2019\",mount_point=\"/var/opt/mssql\"}",
+                    "legend": "Занято",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Дисковый I/O ВМ, MiB/с",
+            "description": "Все операции устройства sda, включая ОС и другие контейнеры.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "rate(node_resources_disk_read_bytes_total{machine_id=\"__MACHINE_ID__\",device=\"sda\"}[5m]) / 1024^2",
+                    "legend": "Чтение",
+                    "color": "",
+                    "scope": "project"
+                  },
+                  {
+                    "datasource": "",
+                    "query": "rate(node_resources_disk_written_bytes_total{machine_id=\"__MACHINE_ID__\",device=\"sda\"}[5m]) / 1024^2",
+                    "legend": "Запись",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Логи и состояние",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Сообщения MSSQL по уровням за 5 минут",
+            "description": "Число сообщений из счётчика агента. Диапазоны по 5 минут перекрываются, их нельзя складывать как независимые интервалы.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (level) (increase(container_log_messages_total{machine_id=\"__MACHINE_ID__\",container_id=\"/docker/mssql2019\"}[5m]))",
+                    "legend": "{{level}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "bar",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Ошибки в логах MSSQL за 5 минут",
+            "description": "Только сообщения error/fatal. Unknown не учитывается. Отсутствие данных не доказывает отсутствие ошибок SQL Server. Это не число неуспешных SQL-запросов.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum(increase(container_log_messages_total{machine_id=\"__MACHINE_ID__\",container_id=\"/docker/mssql2019\",level=~\"error|fatal\"}[5m]))",
+                    "legend": "Ошибки",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "bar",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
