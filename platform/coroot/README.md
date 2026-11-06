@@ -32,6 +32,14 @@
 | cluster-agent | `ghcr.io/coroot/coroot-cluster-agent:1.11.6` |
 | ClickHouse, Keeper | зашиты в оператор (меняются вместе с ним) |
 
+## Пользовательские дашборды
+
+JSON дашбордов хранится в [`dashboards/`](dashboards/README.md), синхронизация —
+[`scripts/sync-dashboard.py`](scripts/sync-dashboard.py). Это отдельная команда
+через API Coroot 1.27.4, не часть Helm-релиза. По умолчанию скрипт показывает план,
+запись выполняется с `--apply`. Перед обновлением сохраняется локальная резервная
+копия. Авторизация пользовательская, ключи агентов для неё не подходят.
+
 ## Secret `coroot-admin`
 
 Пароль пользователя `admin` для первого запуска — в Secret `coroot/coroot-admin`, ключ `password`. Создаётся вручную до установки, в репозитории пароля нет.
