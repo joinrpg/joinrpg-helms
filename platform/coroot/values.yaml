@@ -176,6 +176,85 @@ spec:
         # Полный отказ приложения ловят SLO и instance-restarts.
         - id: instance-availability
           for: 10m
+        # MSSQL: warning >80%/5m уже даёт встроенный storage-space, не дублируем.
+        # Следим за файловой системой с данными SQL, а не размером отдельных БД.
+        - id: mssql-disk-critical
+          name: "MSSQL disk critical"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              scope: project
+              expression: >-
+                100 * max by (machine_id, mount_point) (
+                  container_resources_disk_used_bytes{machine_id="2b08020f843b49cdbe7d4560096f2f80",container_id="/docker/mssql2019",mount_point="/var/opt/mssql"}
+                ) / max by (machine_id, mount_point) (
+                  container_resources_disk_size_bytes{machine_id="2b08020f843b49cdbe7d4560096f2f80",container_id="/docker/mssql2019",mount_point="/var/opt/mssql"} > 0
+                ) > 90
+          for: 5m
+          severity: critical
+          templates:
+            summary: "MSSQL: диск с данными заполнен более чем на 90% в течение 5 минут"
+            description: "ВМ mssql-prod, /var/opt/mssql. Проверить свободное место, рост файлов SQL и Docker logs; не удалять файлы БД вручную."
+        - id: mssql-metrics-missing
+          name: "MSSQL metrics missing"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              scope: project
+              expression: >-
+                max(absent_over_time(node_agent_info{machine_id="2b08020f843b49cdbe7d4560096f2f80"}[5m]))
+                or max(absent_over_time(container_resources_disk_used_bytes{machine_id="2b08020f843b49cdbe7d4560096f2f80",container_id="/docker/mssql2019",mount_point="/var/opt/mssql"}[5m]))
+          for: 2m
+          severity: critical
+          templates:
+            summary: "MSSQL: не поступают метрики агента или диска с данными"
+            description: "Нет образцов за 5 минут, условие сохраняется ещё 2 минуты. Проверить ВМ mssql-prod, Docker mssql2019 и node-agent в /root/monitoring, доставку в Coroot. Это не доказательство недоступности SQL."
+        - id: dbaas-disk-warning
+          name: "PostgreSQL DBaaS disk warning"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              scope: project
+              expression: >-
+                max by (ds_id, ds_name, ip) (dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}) > 80
+          for: 15m
+          severity: warning
+          templates:
+            summary: "PostgreSQL {{.ds_name}}, {{.ip}}: диск заполнен более чем на 80% в течение 15 минут"
+            description: "Проверить диск ноды в Selectel, рост БД, WAL и слоты репликации; при необходимости увеличить диск."
+        - id: dbaas-disk-critical
+          name: "PostgreSQL DBaaS disk critical"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              scope: project
+              expression: >-
+                max by (ds_id, ds_name, ip) (dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}) > 90
+          for: 5m
+          severity: critical
+          templates:
+            summary: "PostgreSQL {{.ds_name}}, {{.ip}}: диск заполнен более чем на 90% в течение 5 минут"
+            description: "Риск перехода DBaaS в режим только чтения при заполнении диска. Проверить Selectel и срочно освободить место штатными средствами или увеличить диск."
+        - id: dbaas-metrics-missing
+          name: "PostgreSQL DBaaS metrics missing"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              scope: project
+              expression: >-
+                (max(up{namespace="coroot",pod=~"coroot-dbaas-metrics-.*"}) == 0)
+                or (count(count by (ip) (count_over_time(dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}[5m]))) < 2)
+                or max(absent_over_time(dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}[5m]))
+          for: 2m
+          severity: critical
+          templates:
+            summary: "PostgreSQL Kaitlyn: ошибка сбора или нет метрик одной из двух нод"
+            description: "Ошибка scrape сохраняется 2 минуты либо за 5 минут есть данные менее двух нод и условие держится ещё 2 минуты. Проверить coroot-dbaas-metrics, токен, DNS/TLS и API Selectel. Две ноды — ожидаемый состав Kaitlyn; при изменении состава обновить правило. Это не проверка SQL-доступности."
         # Сертификаты cert-manager (метрики контроллера cert-manager, порт 9402; собираются,
         # если на поде есть аннотации coroot.com/scrape-metrics и coroot.com/metrics-port — README.md).
         # cert-manager продлевает за 30 дней до истечения: меньше 21 дня — продление не

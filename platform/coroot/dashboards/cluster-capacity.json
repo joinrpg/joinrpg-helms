@@ -1,5 +1,5 @@
 {
-  "name": "Кластер: ресурсы",
+  "name": "K8s: ресурсы",
   "description": "Факт и requests по Kubernetes-нодам, Pending-поды и агрегированный запас N-1. Управляется из joinrpg-helms.",
   "config": {
     "groups": [
