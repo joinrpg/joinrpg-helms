@@ -1,0 +1,259 @@
+{
+  "name": "Production: состояние приложений",
+  "description": "Portal, idportal и kogda-prod: серверные HTTP-метрики, ресурсы и реплики. Управляется из joinrpg-helms.",
+  "config": {
+    "groups": [
+      {
+        "name": "HTTP",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Входящие запросы, запросов/с",
+            "description": "Измерение на стороне приложения через eBPF, не трафик балансировщика.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (application) (label_replace(rate(container_http_inbound_requests_total{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\"}[5m]), \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\"))",
+                    "legend": "{{application}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Ответы 5xx, ответов/с",
+            "description": "Только HTTP 5xx, не все ошибки бизнес-логики. Отсутствие ряда не подменяется нулём.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (application) (label_replace(rate(container_http_inbound_requests_total{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\",status=\"5xx\"}[5m]), \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\"))",
+                    "legend": "{{application}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Доля ответов 5xx, %",
+            "description": "Без запросов деление даёт NaN. Отсутствие ряда не означает отсутствие ошибок.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "100 * (sum by (application) (label_replace(rate(container_http_inbound_requests_total{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\",status=\"5xx\"}[5m]), \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\"))) / (sum by (application) (label_replace(rate(container_http_inbound_requests_total{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\"}[5m]), \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\")))",
+                    "legend": "{{application}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Серверная задержка p95, с",
+            "description": "Оценка eBPF. G156: ложные длинные запросы Apache/PHP. G158: долгоживущие Blazor-соединения. Не использовать как единственный показатель задержек.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "histogram_quantile(0.95, sum by (application,le) (label_replace(rate(container_http_inbound_requests_duration_seconds_total_bucket{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\"}[5m]), \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\")))",
+                    "legend": "{{application}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Реплики и ресурсы",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Реплики: доступны и желаемы",
+            "description": "Доступность Kubernetes Deployment. Значение 0 и отсутствие метрики — разные состояния.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (namespace,deployment) (kube_deployment_status_replicas_available{namespace=~\"joinrpg-prod|kogda-prod\",deployment=~\"joinrpg-portal|joinrpg-idportal|kogda-igra\"})",
+                    "legend": "{{namespace}}/{{deployment}} доступны",
+                    "color": "",
+                    "scope": "project"
+                  },
+                  {
+                    "datasource": "",
+                    "query": "max by (namespace,deployment) (kube_deployment_spec_replicas{namespace=~\"joinrpg-prod|kogda-prod\",deployment=~\"joinrpg-portal|joinrpg-idportal|kogda-igra\"})",
+                    "legend": "{{namespace}}/{{deployment}} желаемы",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "CPU приложений, ядра",
+            "description": "Сумма по репликам каждого приложения.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (application) (label_replace(rate(container_resources_cpu_usage_seconds_total{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\"}[5m]), \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\"))",
+                    "legend": "{{application}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Память приложений — RSS, GiB",
+            "description": "Сумма RSS реплик, без page cache и части kernel memory.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (application) (label_replace(container_resources_memory_rss_bytes{container_id=~\"/k8s/joinrpg-prod/[^/]+/(joinrpg-portal|joinrpg-idportal)|/k8s/kogda-prod/[^/]+/kogda-igra\"}, \"application\", \"$1/$2\", \"container_id\", \"/k8s/([^/]+)/[^/]+/([^/]+)\")) / 1024^3",
+                    "legend": "{{application}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Перезапуски контейнеров prod за час",
+            "description": "Все контейнеры namespace joinrpg-prod и kogda-prod, включая вспомогательные. Скользящее окно.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (namespace,container) (increase(kube_pod_container_status_restarts_total{namespace=~\"joinrpg-prod|kogda-prod\"}[1h]))",
+                    "legend": "{{namespace}}/{{container}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

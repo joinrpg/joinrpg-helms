@@ -1,0 +1,258 @@
+{
+  "name": "Coroot: мониторинг",
+  "description": "Ресурсы компонентов мониторинга и дисков, перезапуски и сообщения агентов. Управляется из joinrpg-helms.",
+  "config": {
+    "groups": [
+      {
+        "name": "Ресурсы",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "CPU компонентов, ядра",
+            "description": "1 — одно логическое ядро. Серии по экземплярам контейнеров.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (container_id) (rate(container_resources_cpu_usage_seconds_total{container_id=~\"/k8s/coroot/.*|/k8s/infra/[^/]+/fluent-bit|/docker/coroot-vm-(node-agent|fluent-bit)-1\"}[5m]))",
+                    "legend": "{{container_id}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Память компонентов — RSS, GiB",
+            "description": "RSS не равен полной памяти cgroup: часть kernel/eBPF памяти не учитывается.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (container_id) (container_resources_memory_rss_bytes{container_id=~\"/k8s/coroot/.*|/k8s/infra/[^/]+/fluent-bit|/docker/coroot-vm-(node-agent|fluent-bit)-1\"}) / 1024^3",
+                    "legend": "{{container_id}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "RSS к лимиту памяти, %",
+            "description": "Это отношение RSS, а не полного memory.current к лимиту. Не показывает точный запас до OOM.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "100 * max by (container_id) (container_resources_memory_rss_bytes{container_id=~\"/k8s/coroot/.*|/k8s/infra/[^/]+/fluent-bit|/docker/coroot-vm-(node-agent|fluent-bit)-1\"}) / max by (container_id) (container_resources_memory_limit_bytes{container_id=~\"/k8s/coroot/.*|/k8s/infra/[^/]+/fluent-bit|/docker/coroot-vm-(node-agent|fluent-bit)-1\"} > 0)",
+                    "legend": "{{container_id}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Хранилище",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Заполнение PVC Coroot, %",
+            "description": "Файловые системы PVC ClickHouse, Keeper и сервера Coroot. Это не разбивка таблиц по типам телеметрии.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "100 * max by (volume) (container_resources_disk_used_bytes{container_id=~\"/k8s/coroot/.*\",volume!=\"\"}) / max by (volume) (container_resources_disk_size_bytes{container_id=~\"/k8s/coroot/.*\",volume!=\"\"})",
+                    "legend": "{{volume}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Свободно на PVC Coroot, GiB",
+            "description": "Разность размера и занятого пространства, без вычета резерва файловой системы.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "(max by (volume) (container_resources_disk_size_bytes{container_id=~\"/k8s/coroot/.*\",volume!=\"\"}) - max by (volume) (container_resources_disk_used_bytes{container_id=~\"/k8s/coroot/.*\",volume!=\"\"})) / 1024^3",
+                    "legend": "{{volume}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Состояние и логи",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Перезапуски компонентов за час",
+            "description": "Скользящее окно. Счётчик контейнеров агента, не доказательство доступности приложения.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (container_id) (increase(container_restarts_total{container_id=~\"/k8s/coroot/.*|/k8s/infra/[^/]+/fluent-bit|/docker/coroot-vm-(node-agent|fluent-bit)-1\"}[1h]))",
+                    "legend": "{{container_id}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Предупреждения и ошибки за 5 минут",
+            "description": "Только классифицированные warning/error/fatal. Unknown не учтён. Наличие доставки логов не подтверждает доставку всех событий.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (container_id,level) (increase(container_log_messages_total{container_id=~\"/k8s/coroot/.*|/k8s/infra/[^/]+/fluent-bit|/docker/coroot-vm-(node-agent|fluent-bit)-1\",level=~\"warning|error|fatal\"}[5m]))",
+                    "legend": "{{container_id}} / {{level}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Возраст последней метрики node-agent, с",
+            "description": "Группировка по system_uuid, не machine_id. После истечения staleness ряд исчезает: No data не означает норму. Внешнюю проверку недоступности Coroot эта панель не заменяет.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "time() - max by (system_uuid) (timestamp(node_agent_info))",
+                    "legend": "{{system_uuid}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
