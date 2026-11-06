@@ -25,12 +25,12 @@ spec:
 
   # Метрики в ClickHouse — Prometheus оператор не создаёт.
   storeMetricsInClickhouse: true
-  # Замер за первые сутки: ~400 MiB/сутки (трейсы ~260, метрики ~72, профили ~54, логи ~16) —
-  # при этих сроках ~4 GiB из 20Gi (с запасом на дневной трафик — до ~8 GiB).
+  # Замеры 2026-11-06: метрики ~77–81, трейсы ~300, логи ~78–92, профили ~55–58 MiB/сутки.
+  # При этих сроках прогноз занятого диска ~8–9 GiB из 20Gi; бюджет с запасом ~10–12 GiB.
   metricsTTL: 30d
   tracesTTL: 7d
-  logsTTL: 7d
-  profilesTTL: 3d
+  logsTTL: 30d
+  profilesTTL: 14d
 
   # Env сервера Coroot для webhook Telegram (projects[].notificationIntegrations): ключ реле.
   # Secret coroot-telegram создаётся вручную (README.md); optional — без него под стартует.
