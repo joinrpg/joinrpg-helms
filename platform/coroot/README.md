@@ -69,7 +69,8 @@ cd platform/coroot
 
 helm lint . -n coroot
 helm template coroot . -n coroot > /tmp/coroot.yaml   # посмотреть ресурс Coroot
-grep -n '\$' /tmp/coroot.yaml                         # ровно одна строка: TELEGRAM_RELAY_KEY
+helm template coroot . -n coroot --show-only templates/coroot.yaml > /tmp/coroot-cr.yaml
+grep -n '\$' /tmp/coroot-cr.yaml                      # ровно одна строка: TELEGRAM_RELAY_KEY
 grep -n 'name: ghcr' /tmp/coroot.yaml                 # три закреплённых образа
 helm upgrade --install coroot . -n coroot --dry-run=server
 
@@ -128,6 +129,97 @@ coroot.com/metrics-port: "9402"
 ```
 
 Аннотации заданы в `podAnnotations` чарта [`platform/cert-manager`](../cert-manager/values.yaml). Если их убрать, правила по сертификатам замолчат без ошибок: правило на отсутствующую метрику ничего не находит.
+
+## Метрики PostgreSQL DBaaS Selectel
+
+`dbaasMetrics` в `values.yaml` включает Deployment `coroot-dbaas-metrics`:
+cluster-agent → HTTP `/metrics` прокси → HTTPS `ru-6.dbaas.selcloud.ru/metrics` с Bearer.
+Токен берётся из Secret `coroot/selectel-dbaas-metrics`, ключ `token`.
+Secret создаётся вручную, Helm его не хранит и не удаляет.
+Это отдельные ресурсы чарта вне `spec` Coroot, изменение прокси не меняет CR оператора.
+Отдельные Prometheus, Service и публичный маршрут не создаются.
+
+Прокси работает без root с read-only rootfs, временная конфигурация с токеном —
+в `/tmp` на memory-backed `emptyDir`, права файла `600`. Образ закреплён digest.
+ConfigMap содержит только шаблон, токена в нём нет. NetworkPolicy разрешает вход
+на порт 8080 только cluster-agent в этом namespace (метки проверены для оператора 1.10.6).
+Доступ Kubernetes-администраторов к pod/Secret этим не ограничивается.
+TLS upstream проверяется, DNS обновляется, кеш отключён; ошибки API передаются
+сборщику. `/healthz` проверяет сам nginx, а не доступность Selectel.
+Не запускать `nginx -T`: он напечатает конфигурацию с токеном.
+
+Источник и область токена: **Kaitlyn → Мониторинг → Токены для Prometheus**.
+Токен даёт доступ к метрикам всех DBaaS-кластеров проекта в пуле `ru-6`.
+Проверка 06.11.2026: 46 имён метрик, 536 рядов, две ноды Kaitlyn.
+Общие метки: `ds_id`, `ds_name`, `ds_group`, `ds_type_version`, `ip`; у БД — `datname`.
+CPU, RAM и диск (`dbaas_cpu`, `dbaas_memory_percent`, `dbaas_disk_percent`) — проценты.
+Есть OOM, WAL, replication lag, подключения, блокировки и ожидание PgBouncer.
+Метрики IO уже выражены в секунду; ряд имён, похожих на счётчики, объявлен `gauge`.
+Не применять `rate()` только на основании имени. История начинается с подключения,
+метрики сохраняются в ClickHouse на общий срок `metricsTTL` (30d).
+Это не SQL-интеграция `clusterAgent.databases` и не доставка логов PostgreSQL.
+Дашборд и правила алертов DBaaS добавляются после проверки сбора.
+
+Команды для WSL из корня репозитория. Сначала создать Secret из локального
+`secrets.env` (токен не передаётся аргументом процесса и не печатается),
+отрендерить и проверить diff. `kubectl diff` возвращает 1, когда есть отличия.
+В diff ожидаются только новые ресурсы `coroot-dbaas-metrics`, CR Coroot не меняется.
+
+```bash
+(
+set -euo pipefail
+export KUBECONFIG=~/.kube/joinrpg.yaml
+source <(tr -d '\r' < secrets.env)
+test -n "${SELECTEL_DBAAS_METRICS_TOKEN:-}" || { echo 'Не заполнен SELECTEL_DBAAS_METRICS_TOKEN'; exit 1; }
+printf '%s' "$SELECTEL_DBAAS_METRICS_TOKEN" | kubectl create secret generic selectel-dbaas-metrics -n coroot \
+  --from-file=token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+
+helm lint ./platform/coroot -n coroot
+helm template coroot ./platform/coroot -n coroot > /tmp/coroot-dbaas.yaml
+kubectl diff -f /tmp/coroot-dbaas.yaml || test "$?" -eq 1
+helm upgrade coroot ./platform/coroot -n coroot --dry-run=server
+)
+```
+
+После проверки diff:
+
+```bash
+helm upgrade coroot ./platform/coroot -n coroot
+kubectl rollout status deployment/coroot-dbaas-metrics -n coroot --timeout=120s
+kubectl get pods -n coroot -l app.kubernetes.io/name=selectel-dbaas-metrics -o wide
+kubectl logs -n coroot deployment/coroot-dbaas-metrics --tail=30
+```
+
+Через 1–2 минуты проверить, что метрики дошли до ClickHouse:
+
+```bash
+kubectl exec -i -n coroot coroot-clickhouse-shard-0-0 -c clickhouse-server -- \
+  clickhouse-client --readonly=1 -d coroot_0r4fqpy1 <<'SQL'
+SELECT MetricName, Labels['ds_name'] AS cluster, Labels['ip'] AS node,
+       argMax(Value, Timestamp) AS value, max(Timestamp) AS last_seen
+FROM metrics
+WHERE Timestamp > now() - INTERVAL 5 MINUTE
+  AND MetricName IN ('dbaas_cpu', 'dbaas_memory_percent', 'dbaas_disk_percent', 'dbaas_oom_count')
+GROUP BY MetricName, cluster, node
+ORDER BY MetricName, node
+FORMAT PrettyCompact;
+SQL
+```
+
+Если данных нет: проверить Secret (только наличие ключа, без печати значения),
+логи прокси и cluster-agent. HTTP 401 означает проблему токена; 502/504 —
+DNS/TLS/сеть или отказ upstream. Пробы могут оставаться зелёными при отказе API —
+успешный `/healthz` не доказывает успешный сбор `/metrics`.
+У cluster-agent scrape interval по умолчанию 15s, эта настройка общая для его целей.
+
+При ротации повторить создание Secret и выполнить
+`kubectl rollout restart deployment/coroot-dbaas-metrics -n coroot`:
+токен читается из env при старте, смена Secret сама не перезапускает pod.
+Изменения шаблона ConfigMap вызывают rollout через checksum-аннотацию.
+Чтобы отключить сбор, поставить `dbaasMetrics.enabled: false` и применить чарт:
+удалятся только ресурсы прокси, накопленные метрики и Secret останутся.
+
+Документация: [метрики Selectel](https://docs.selectel.ru/managed-databases/postgresql/monitoring/).
 
 ## Смена сроков хранения
 

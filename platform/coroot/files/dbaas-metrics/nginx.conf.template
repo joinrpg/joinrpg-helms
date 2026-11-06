@@ -1,0 +1,55 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+
+events {
+    worker_connections 64;
+}
+
+http {
+    access_log off;
+    server_tokens off;
+    client_body_temp_path /tmp/client_temp;
+    proxy_temp_path /tmp/proxy_temp;
+    fastcgi_temp_path /tmp/fastcgi_temp;
+    uwsgi_temp_path /tmp/uwsgi_temp;
+    scgi_temp_path /tmp/scgi_temp;
+    resolver ${DNS_RESOLVER} valid=30s ipv6=off;
+    resolver_timeout 3s;
+
+    server {
+        listen 8080;
+
+        # Пробы проверяют сам прокси: недоступность Selectel не вызывает рестарты.
+        location = /healthz {
+            return 200 'ok\n';
+        }
+
+        location = /metrics {
+            limit_except GET { deny all; }
+            set $dbaas_host __UPSTREAM_HOST__;
+            proxy_pass https://$dbaas_host/metrics;
+            proxy_pass_request_headers off;
+            proxy_pass_request_body off;
+            proxy_set_header Host $dbaas_host;
+            proxy_set_header Authorization "Bearer ${SELECTEL_DBAAS_METRICS_TOKEN}";
+            proxy_ssl_server_name on;
+            proxy_ssl_name $dbaas_host;
+            proxy_ssl_verify on;
+            proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+            proxy_ssl_verify_depth 3;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 5s;
+            proxy_send_timeout 5s;
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_next_upstream off;
+            proxy_intercept_errors off;
+            proxy_redirect off;
+        }
+
+        location / {
+            return 404;
+        }
+    }
+}

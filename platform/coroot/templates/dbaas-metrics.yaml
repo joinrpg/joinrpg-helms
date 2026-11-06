@@ -1,0 +1,127 @@
+{{- if .Values.dbaasMetrics.enabled }}
+{{- if not (regexMatch `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$` .Values.dbaasMetrics.upstreamHost) }}
+{{- fail "dbaasMetrics.upstreamHost должен быть DNS-именем без схемы, порта и пути" }}
+{{- end }}
+{{- $name := printf "%s-dbaas-metrics" .Release.Name }}
+{{- $config := .Files.Get "files/dbaas-metrics/nginx.conf.template" | replace "__UPSTREAM_HOST__" .Values.dbaasMetrics.upstreamHost }}
+{{- $start := .Files.Get "files/dbaas-metrics/start.sh" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+data:
+  nginx.conf.template: |
+    {{- $config | nindent 4 }}
+  start.sh: |
+    {{- $start | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: selectel-dbaas-metrics
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: selectel-dbaas-metrics
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ printf "%s%s" $config $start | sha256sum }}
+        coroot.com/scrape-metrics: "true"
+        coroot.com/metrics-port: "8080"
+        coroot.com/metrics-path: /metrics
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy
+          image: {{ .Values.dbaasMetrics.image | quote }}
+          command: ["/bin/sh", "/config/start.sh"]
+          env:
+            - name: SELECTEL_DBAAS_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "Укажи dbaasMetrics.tokenSecret.name" .Values.dbaasMetrics.tokenSecret.name }}
+                  key: {{ required "Укажи dbaasMetrics.tokenSecret.key" .Values.dbaasMetrics.tokenSecret.key }}
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            {{- toYaml .Values.dbaasMetrics.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 2
+            failureThreshold: 15
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: selectel-dbaas-metrics
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: coroot-cluster-agent
+              app.kubernetes.io/part-of: coroot
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}
