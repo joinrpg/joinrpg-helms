@@ -12,6 +12,34 @@ I/O ВМ, сообщения по уровням и ошибки в логах. 
 | `production.json` | Production: состояние приложений | Portal, idportal, kogda-prod: запросы, HTTP 5xx, p95, доступные/желаемые реплики, CPU/RSS, перезапуски prod-контейнеров |
 | `cluster-capacity.json` | Кластер: ресурсы | Ready, Pending, факт CPU/RAM, requests относительно allocatable, свободные CPU requests и агрегированный запас N-1 |
 
+`postgresql.json` — «PostgreSQL: DBaaS Kaitlyn»: 14 панелей CPU/RAM/диска/IO,
+подключений, блокировок/deadlocks, WAL, PgBouncer, репликации, OOM и состояния сбора.
+Все запросы `dbaas_*` ограничены `ds_id` кластера Kaitlyn, без привязки к IP мастера.
+Агрегация `max` убирает дубли при смене pod прокси, а не суммирует одну ноду дважды.
+Единицы `dbaas_pg_replication_lag` не подтверждены API, поэтому показано исходное
+значение. Deadlocks и OOM экспортируются как gauge и показаны без `rate/increase`:
+это не количество новых событий за интервал. IO уже выражен в байтах в секунду.
+`up` проверяет сбор прокси, а не SQL-подключение приложения. Возраст образца —
+возраст scrape, не гарантия свежести внутренних данных Selectel; No data не означает норму.
+
+Добавление дашборда в WSL из корня репозитория (сначала план):
+
+```bash
+source <(tr -d '\r' < secrets.env)
+python3 platform/coroot/scripts/sync-dashboard.py \
+  --file platform/coroot/dashboards/postgresql.json \
+  --url "$COROOT_URL" --project "$COROOT_PROJECT_ID" \
+  --machine-id "$COROOT_MACHINE_ID"
+```
+
+Для записи повторить команду с `--apply`. `--machine-id` требуется скрипту,
+но не используется в этом JSON. Дашборд не включает доставку логов PostgreSQL
+или SQL-интеграцию Coroot и не создаёт правила алертов.
+
+Проверка 06.11.2026: все 16 PromQL-запросов `postgresql.json` выполнены
+через read-only API Coroot, каждый вернул данные. Основные метрики — две ноды,
+репликация — одна, PgBouncer — одна обслуживающая клиентов нода.
+
 В этих трёх файлах нет привязки к machine-id MSSQL, но текущий скрипт всё ещё
 требует флаг `--machine-id`: передавайте то же значение, в этих файлах оно не
 подставляется. Kubernetes-ноды сопоставляются по `system_uuid` и `kube_node_info`:

@@ -158,7 +158,9 @@ CPU, RAM и диск (`dbaas_cpu`, `dbaas_memory_percent`, `dbaas_disk_percent`)
 Не применять `rate()` только на основании имени. История начинается с подключения,
 метрики сохраняются в ClickHouse на общий срок `metricsTTL` (30d).
 Это не SQL-интеграция `clusterAgent.databases` и не доставка логов PostgreSQL.
-Дашборд и правила алертов DBaaS добавляются после проверки сбора.
+Дашборд «PostgreSQL: DBaaS Kaitlyn» — [`dashboards/postgresql.json`](dashboards/postgresql.json),
+команда синхронизации — в [`dashboards/README.md`](dashboards/README.md).
+Правила алертов DBaaS пока не добавлены.
 
 Команды для WSL из корня репозитория. Сначала создать Secret из локального
 `secrets.env` (токен не передаётся аргументом процесса и не печатается),

@@ -1,0 +1,452 @@
+{
+  "name": "PSQL: DBaaS Kaitlyn",
+  "description": "Ресурсы двух нод, PostgreSQL, PgBouncer и состояние сбора метрик Selectel. Управляется из joinrpg-helms.",
+  "config": {
+    "groups": [
+      {
+        "name": "Ресурсы нод",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "CPU, %",
+            "description": "Использование CPU по данным Selectel, уже в процентах.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_cpu{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Память, %",
+            "description": "Память без кеша и буферов ОС, уже в процентах.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_memory_percent{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Диск, %",
+            "description": "Занятое место с учётом служебного резерва Selectel. Это не размер отдельных баз.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_disk_percent{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Дисковый I/O, MiB/с",
+            "description": "API отдаёт готовые скорости чтения и записи. Дополнительный rate не применяется.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_disk_read_bytes{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}) / 1024^2",
+                    "legend": "{{ip}} / чтение",
+                    "color": "",
+                    "scope": "project"
+                  },
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_disk_write_bytes{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}) / 1024^2",
+                    "legend": "{{ip}} / запись",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "PostgreSQL",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Подключения по нодам",
+            "description": "Все подключения к PostgreSQL. Клиентские соединения PgBouncer показаны отдельно.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_total_connections{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Блокировки по нодам",
+            "description": "Сумма блокировок по базам; наличие блокировок само по себе не означает ожидание или аварию.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (ip) (max by (ip, datname) (dbaas_locks{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}))",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Deadlocks: значение Selectel по базам",
+            "description": "Исходное значение dbaas_deadlocks, экспортируется как gauge. Это не число новых deadlocks за интервал и не скорость.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip, datname) (dbaas_deadlocks{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}} / {{datname}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Объём WAL, GiB",
+            "description": "Общий размер WAL-файлов каждой ноды по данным API.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_pg_total_wals_size_bytes{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}) / 1024^3",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Пулер PgBouncer",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Клиенты: активные и ожидающие",
+            "description": "Сумма по базам на каждой ноде. Ожидающие клиенты отправили запрос, но ещё не получили серверное соединение.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "sum by (ip) (max by (ip, datname) (dbaas_pgbouncer_pools_client_active_connections{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}))",
+                    "legend": "{{ip}} / активные",
+                    "color": "",
+                    "scope": "project"
+                  },
+                  {
+                    "datasource": "",
+                    "query": "sum by (ip) (max by (ip, datname) (dbaas_pgbouncer_pools_client_waiting_connections{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}))",
+                    "legend": "{{ip}} / ожидающие",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Максимальное ожидание клиента, с",
+            "description": "Максимальное время ожидания клиента среди баз каждой ноды.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_pgbouncer_pools_client_maxwait_seconds{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "Репликация и состояние сбора",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "Задержка репликации: значение Selectel",
+            "description": "Исходная метрика dbaas_pg_replication_lag. Единицы не указаны в полученном HELP/TYPE, поэтому пересчёт и пороги пока не заданы. Обычно ряд есть только у реплики.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_pg_replication_lag{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "OOM: значение Selectel",
+            "description": "Исходное число OOM kills, тип gauge. Не означает число событий за выбранный интервал; ноль в текущем снимке не исключает прошлые события.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (ip) (dbaas_oom_count{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"})",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Успешность сбора прокси: 1 / 0",
+            "description": "up показывает результат scrape /metrics: 1 — успешен, 0 — ошибка. Не проверяет доступность PostgreSQL для приложений. При исчезновении цели ряд пропадает; No data не означает норму.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "min by (pod) (up{namespace=\"coroot\",pod=~\"coroot-dbaas-metrics-.*\"})",
+                    "legend": "{{pod}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Возраст метрик нод, с",
+            "description": "Возраст последнего образца CPU каждой ноды. После истечения staleness ряд исчезает: No data не означает норму. API Selectel может обновлять исходные данные реже scrape.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "time() - max by (ip) (timestamp(dbaas_cpu{ds_id=\"4b8029b8-1433-4452-b2e3-e171e7212ec6\"}))",
+                    "legend": "{{ip}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
