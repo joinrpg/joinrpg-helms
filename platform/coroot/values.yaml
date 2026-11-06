@@ -184,7 +184,6 @@ spec:
           source:
             type: promql
             promql:
-              scope: project
               expression: >-
                 100 * max by (machine_id, mount_point) (
                   container_resources_disk_used_bytes{machine_id="2b08020f843b49cdbe7d4560096f2f80",container_id="/docker/mssql2019",mount_point="/var/opt/mssql"}
@@ -202,7 +201,6 @@ spec:
           source:
             type: promql
             promql:
-              scope: project
               expression: >-
                 max(absent_over_time(node_agent_info{machine_id="2b08020f843b49cdbe7d4560096f2f80"}[5m]))
                 or max(absent_over_time(container_resources_disk_used_bytes{machine_id="2b08020f843b49cdbe7d4560096f2f80",container_id="/docker/mssql2019",mount_point="/var/opt/mssql"}[5m]))
@@ -217,7 +215,6 @@ spec:
           source:
             type: promql
             promql:
-              scope: project
               expression: >-
                 max by (ds_id, ds_name, ip) (dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}) > 80
           for: 15m
@@ -231,7 +228,6 @@ spec:
           source:
             type: promql
             promql:
-              scope: project
               expression: >-
                 max by (ds_id, ds_name, ip) (dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}) > 90
           for: 5m
@@ -239,13 +235,31 @@ spec:
           templates:
             summary: "PostgreSQL {{.ds_name}}, {{.ip}}: диск заполнен более чем на 90% в течение 5 минут"
             description: "Риск перехода DBaaS в режим только чтения при заполнении диска. Проверить Selectel и срочно освободить место штатными средствами или увеличить диск."
+        - id: dbaas-pgbouncer-queue
+          name: "PostgreSQL PgBouncer queue"
+          notificationCategory: application
+          source:
+            type: promql
+            promql:
+              expression: >-
+                (max by (ds_id, ds_name, ip, datname) (
+                  dbaas_pgbouncer_pools_client_waiting_connections{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}
+                ) > 0)
+                and on (ds_id, ds_name, ip, datname)
+                (max by (ds_id, ds_name, ip, datname) (
+                  dbaas_pgbouncer_pools_client_maxwait_seconds{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}
+                ) > 5)
+          for: 5m
+          severity: warning
+          templates:
+            summary: "PostgreSQL {{.ds_name}}, {{.ip}}, БД {{.datname}}: очередь PgBouncer с ожиданием более 5 секунд сохраняется 5 минут"
+            description: "Проверить активные/ожидающие соединения пулера, лимиты пула, долгие транзакции и блокировки PostgreSQL. Не увеличивать пул без проверки ресурсов БД."
         - id: dbaas-metrics-missing
           name: "PostgreSQL DBaaS metrics missing"
           notificationCategory: application
           source:
             type: promql
             promql:
-              scope: project
               expression: >-
                 (max(up{namespace="coroot",pod=~"coroot-dbaas-metrics-.*"}) == 0)
                 or (count(count by (ip) (count_over_time(dbaas_disk_percent{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}[5m]))) < 2)
