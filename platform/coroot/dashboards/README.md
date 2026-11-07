@@ -11,7 +11,7 @@ SQL-проба — целью `mssql` экспортера в Kubernetes.
 |---|---|---|
 | `monitoring.json` | Coroot: мониторинг | CPU/RSS компонентов Coroot и Fluent Bit в Kubernetes и на ВМ, три PVC, перезапуски, предупреждения/ошибки, возраст метрик агентов |
 | `production.json` | Production: состояние приложений | Portal, idportal, kogda-prod: запросы, HTTP 5xx, p95, доступные/желаемые реплики, CPU/RSS, перезапуски prod-контейнеров |
-| `cluster-capacity.json` | Кластер: ресурсы | Ready, Pending, факт CPU/RAM, requests относительно allocatable, свободные CPU requests и агрегированный запас N-1 |
+| `cluster-capacity.json` | K8s: ресурсы | Ready, Pending, факт CPU/RAM, requests относительно allocatable, свободные CPU requests и агрегированный запас N-1 |
 
 `postgresql.json` — «PostgreSQL: DBaaS Kaitlyn»: 18 панелей SQL-пробы, CPU/RAM/диска/IO,
 подключений, блокировок/deadlocks, WAL, PgBouncer, репликации, OOM и состояния сбора.
@@ -84,6 +84,15 @@ read-only API Coroot 1.27.4, каждый вернул ряды. В Kubernetes �
 ноды, в prod — три приложения, у Coroot — три тома. Проверка запросов не заменяет
 просмотр компоновки после применения. Ключ API для проверки не выводился и не
 сохранялся в файлы. Ни один дашборд этой проверкой не создавался.
+
+Повторная проверка `cluster-capacity.json` 07.11.2026 после добавления четвёртой
+ноды: все 10 запросов выполнены через read-only API, Ready/CPU/RAM содержат четыре
+Kubernetes-ноды, внешняя ВМ исключена. Дублей requests по `(uid, container, resource)`,
+allocatable по `(node, resource)` и связок `(system_uuid, node)` не обнаружено.
+N−1 сверён независимо с live Kubernetes API: сумма requests обычных контейнеров
+Pending/Running и allocatable совпали. Init-контейнеры, overhead, DaemonSet после
+отказа, PVC-зоны и ограничения размещения эта агрегированная оценка не моделирует.
+План синхронизации подтвердил совпадение JSON с существующим дашбордом Coroot.
 
 Ограничения новых дашбордов:
 
