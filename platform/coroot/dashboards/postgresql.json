@@ -4,6 +4,128 @@
   "config": {
     "groups": [
       {
+        "name": "SQL-доступность из Kubernetes",
+        "collapsed": false,
+        "panels": [
+          {
+            "name": "SELECT 1: 1 — успешно",
+            "description": "Реальный SELECT 1 под coroot_probe в joinrpg_prod_notifications. При ошибке ряд становится NaN/исчезает: No data не означает успех. Не проверяет запись и запросы пользователя приложения.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (target) (db_sql_probe_success{namespace=\"coroot\",pod=~\"coroot-sql-probes-.*\",target=\"postgres\"})",
+                    "legend": "{{target}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "SQL-подключение: 1 / 0",
+            "description": "up цели sql_exporter: 1 — подключение/ping успешны, 0 — ошибка. Успех ping не заменяет результат SELECT 1. При исчезновении телеметрии ряд пропадает.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max by (target) (up{namespace=\"coroot\",pod=~\"coroot-sql-probes-.*\",target=\"postgres\"})",
+                    "legend": "{{target}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Сбор SQL-проб: 1 / 0",
+            "description": "Результат HTTP scrape экспортера, отдельный от up SQL-цели: 1 — сбор успешен, 0 — ошибка. No data не означает норму.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "max(up{namespace=\"coroot\",pod=~\"coroot-sql-probes-.*\",target=\"\"})",
+                    "legend": "SQL exporter",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 0,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          },
+          {
+            "name": "Возраст телеметрии SQL-пробы, с",
+            "description": "Возраст последнего образца up цели, включая неуспешные проверки. Это свежесть телеметрии, не время последнего успешного SQL. После staleness ряд пропадёт.",
+            "source": {
+              "metrics": {
+                "queries": [
+                  {
+                    "datasource": "",
+                    "query": "time() - max by (target) (timestamp(up{namespace=\"coroot\",pod=~\"coroot-sql-probes-.*\",target=\"postgres\"}))",
+                    "legend": "{{target}}",
+                    "color": "",
+                    "scope": "project"
+                  }
+                ]
+              }
+            },
+            "widget": {
+              "chart": {
+                "display": "line",
+                "stacked": false
+              }
+            },
+            "box": {
+              "x": 6,
+              "y": 3,
+              "w": 6,
+              "h": 3
+            }
+          }
+        ]
+      },
+      {
         "name": "Ресурсы нод",
         "collapsed": false,
         "panels": [
