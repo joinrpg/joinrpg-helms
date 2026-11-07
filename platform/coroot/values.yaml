@@ -138,6 +138,17 @@ spec:
           - applicationId: "kogda-prod:Deployment:kogda-igra"
             objectivePercent: 95
             objectiveThreshold: 1s
+          # G156 подтверждена и для последних эпизодов dev: Traefik 29 запросов,
+          # max 415ms и 0 HTTP 5xx. Контроль availability не меняется.
+          - applicationId: "kogda-dev:Deployment:kogda-igra"
+            objectivePercent: 95
+            objectiveThreshold: 1s
+          # /metrics экспортера при сбое БД ждёт timeout. Это не пользовательский SLO.
+          # 0% убирает latency burn-rate incidents только у экспортера;
+          # SQL-пробы, их critical-правила и availability SLO остаются включены.
+          - applicationId: "coroot:Deployment:coroot-sql-probes"
+            objectivePercent: 0
+            objectiveThreshold: 5s
 
       # Встроенные правила (instance-restarts, instance-availability, kubernetes-events —
       # FailedScheduling, BackOff и т.п.) включены по умолчанию; здесь только свои.
@@ -151,12 +162,17 @@ spec:
         # зависший Pending scheduler повторяет, 3 события набегают за минуты.
         # source в конфиге заменяет встроенный целиком — остальные поля как по умолчанию.
         - id: kubernetes-events
+          # Часовое окно событий остаётся. Уменьшаем только дополнительное удержание
+          # после исчезновения условия; for для этого источника не применяется.
+          keepFiringFor: 10m
           source:
             type: kubernetes_events
             kubernetesEvents:
               minCount: 3
               maxAlertsPerApp: 20
               evaluateWithAi: true
+          templates:
+            description: "Проверьте последнее время и текст события в карточке, готовность pod и ноды, статус rollout. CNI/FailedMount при старте новой ноды могут завершиться сами; не закрывайте алерт, если ошибки продолжаются. Источник смотрит часовое окно: активная карточка не всегда означает текущую неисправность."
         # Шумные для служебных компонентов правила — только для приложений (категория
         # application). control-plane (kubelet, containerd, cert-manager, calico, процессы
         # хоста) и monitoring (coroot) — в интерфейсе без алертов; dev — уведомления выключены.
@@ -194,6 +210,8 @@ spec:
         - id: mssql-disk-critical
           name: "MSSQL disk critical"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -211,6 +229,8 @@ spec:
         - id: mssql-metrics-missing
           name: "MSSQL metrics missing"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -225,6 +245,8 @@ spec:
         - id: dbaas-disk-warning
           name: "PostgreSQL DBaaS disk warning"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -238,6 +260,8 @@ spec:
         - id: dbaas-disk-critical
           name: "PostgreSQL DBaaS disk critical"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -251,6 +275,8 @@ spec:
         - id: dbaas-pgbouncer-queue
           name: "PostgreSQL PgBouncer queue"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -270,6 +296,8 @@ spec:
         - id: dbaas-metrics-missing
           name: "PostgreSQL DBaaS metrics missing"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -285,6 +313,8 @@ spec:
         - id: mssql-sql-probe
           name: "MSSQL SQL probe"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -299,6 +329,8 @@ spec:
         - id: postgres-sql-probe
           name: "PostgreSQL SQL probe"
           notificationCategory: application
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -316,6 +348,8 @@ spec:
         # удаётся уже 9+ дней.
         - id: certificate-expiry
           name: "Certificate expiry"
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -329,6 +363,8 @@ spec:
             description: "kubectl describe certificate -n {{.namespace}} {{.name}}; логи cert-manager."
         - id: certificate-not-ready
           name: "Certificate not ready"
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -342,6 +378,8 @@ spec:
             description: "kubectl describe certificate -n {{.namespace}} {{.name}}; заказы и challenges ACME."
         - id: node-cpu-requests
           name: "Node CPU requests"
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -364,6 +402,8 @@ spec:
             description: "Новые поды могут не поместиться на ноду (Pending). Проверьте реквесты подов на ноде."
         - id: cluster-cpu-requests
           name: "Cluster CPU requests"
+          selector:
+            type: all
           source:
             type: promql
             promql:
@@ -405,7 +445,7 @@ spec:
           deployments: true
           alertTemplate: >-
             {"text":
-            {{ if eq .Status "OK" }}{{ json (printf "✅ Решено: %s — %s/%s\n%s" .RuleName .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🔥 %s: %s — %s/%s\n%s\n%s" .Severity .RuleName .Application.Namespace .Application.Name .Summary .URL) }}{{ end }} }
+            {{ if eq .Status "OK" }}{{ json (printf "✅ Решено: %s\nПроект: %s\nОбъект: %s/%s\nДлительность: %s\n%s" .RuleName .ProjectName (or .Application.Namespace "—") (or .Application.Name "без привязки") (or .Duration "см. карточку") .URL) }}{{ else }}{{ if and .Details (eq (index .Details 0).Name "Description") }}{{ json (printf "🔥 %s: %s\nПроект: %s\nОбъект: %s/%s\n%s\nЧто проверить: %s\n%s" .Severity .RuleName .ProjectName (or .Application.Namespace "—") (or .Application.Name "без привязки") (printf "%.1600s" .Summary) (printf "%.1200s" (index .Details 0).Value) .URL) }}{{ else }}{{ json (printf "🔥 %s: %s\nПроект: %s\nОбъект: %s/%s\n%s\nПодробности и действия — в карточке.\n%s" .Severity .RuleName .ProjectName (or .Application.Namespace "—") (or .Application.Name "без привязки") (printf "%.1600s" .Summary) .URL) }}{{ end }}{{ end }} }
           incidentTemplate: >-
             {"text":
             {{ if eq .Status "OK" }}{{ json (printf "✅ Инцидент закрыт: %s/%s\n%s" .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🚨 %s: %s/%s не выполняет SLO\n%s" .Status .Application.Namespace .Application.Name .URL) }}{{ end }} }

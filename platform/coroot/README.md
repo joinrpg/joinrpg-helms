@@ -20,7 +20,7 @@
 | Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`; `memory-leak` `for: 2h` — прогрев .NET после деплоя; `instance-availability` `for: 10m` — раскатка portal с `maxSurge: 0`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
 | Категории | `control-plane` дополнена шаблонами `_/*` (процессы хоста) и `infra/*` (fluent-bit); `dev` — без уведомлений |
 | Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
-| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor); `kogda-prod` `kogda-igra` — 95% / 1 с (ложные > 10 с в серверной гистограмме, G156) |
+| SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor); `kogda-prod` и `kogda-dev` — 95% / 1 с (G156); у `coroot-sql-probes` latency objective 0%, контроль БД — отдельными SQL-алертами |
 | Размещение | сервер, ClickHouse, Keeper — только зона `ru-6a`; сервер и ClickHouse по возможности не на одной ноде с `joinrpg-portal` (`joinrpg-prod`) |
 
 Версии образов (закреплены в [`values.yaml`](values.yaml)):
@@ -118,6 +118,33 @@ unset RELAY_KEY
 ```
 
 Смена токена бота — только в воркере (`telegram-relay/README.md`), кластер не трогается.
+
+### Качество сигналов (07.11.2026)
+
+- `coroot:Deployment:coroot-sql-probes`: latency objective **0% / 5s**.
+  В Coroot 1.27.4 это убирает latency burn-rate incidents: доля медленных запросов
+  не может превысить бюджет 100%. HTTP `/metrics` технического экспортера при
+  отказе БД закономерно ждёт timeout; контролировать его пользовательским SLO
+  не нужно. Метрики, availability SLO и отдельные critical SQL-правила не отключаются.
+- `kogda-dev:Deployment:kogda-igra`: latency **95% / 1s**, как у kogda-prod.
+  Последние эпизоды G156 проверены по Traefik за 06.11 21:00–21:45 МСК:
+  29 запросов, max415ms, ни одного >500ms, HTTP5xx0. Availability не ослабляется.
+- `kubernetes-events`: `minCount: 3` сохранён, дополнительный `keepFiringFor`
+  уменьшен с1h до10m. **Часовое окно событий остаётся:** это не настройка
+  подавления стартовых CNI/FailedMount и не гарантирует закрытие через10мин
+  после последнего события. Источник этой версии не применяет `for`; CRD не даёт
+  фильтра по возрасту ноды/причине события. Такие ошибки не исключаются целиком.
+- Webhook alert template показывает проект, объект (или «без привязки»), summary
+  и первое поле Description, если оно есть. При автоотбое — длительность.
+  Description должен содержать влияние и первые действия (они уже заданы у
+  SQL/дисковых правил). Для KubeEvents добавлена инструкция сверить свежесть события,
+  readiness и rollout. Raw Sample/логи/PromQL из Details в сообщение не копируются.
+  Summary и Description ограничены1600/1200символами, JSON формирует функция `json`.
+  Для dev маршрутизация без уведомлений сохраняется, SQL-alerts идут в application.
+
+Новые параметры изменяют только CR Coroot, не SQL-пробы, приложение или Kubernetes
+probes. Для отката SLO явно задать dev99%/500ms и exporter99%/5s; не откатывать
+полностью values из старого коммита с отсутствующими селекторами G198.
 
 ## Метрики cert-manager
 
@@ -266,6 +293,12 @@ CRD оператора 1.10.6 поддерживает у `source.promql` тол
 поле `scope` из API-модели Coroot здесь использовать нельзя. Проверять рендер
 через `kubectl apply --dry-run=server --validate=strict`, а у Helm dry-run
 проверять не только exit code, но и отсутствие предупреждений `unknown field`.
+
+У каждого пользовательского PromQL-правила явно задаётся `selector: {type: all}`.
+Coroot 1.27.4 не подставляет его автоматически: пустой селектор не совпадает
+с созданным алертом, и `resolveNonMatchingAlerts` тут же закрывает его даже при
+сохраняющейся ошибке. Проверка непустого результата PromQL и `enabled: true`
+эту проблему не выявляет — нужен тест открытия и устойчивого состояния алерта.
 
 Проверка запросов 06.11.2026 через read-only API: в здоровом состоянии все пять
 правил пусты; проверены пониженные пороги дисков, отсутствующий агент, отсутствие
