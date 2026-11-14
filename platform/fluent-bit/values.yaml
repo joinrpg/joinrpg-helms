@@ -12,6 +12,11 @@ fluent-bit:
     - joinrpg-prod
     - traefik
     - bastilia-rating-prod
+    - twilight
+    - cert-manager
+    - coroot
+    - infra
+    - kube-system
 
   # Namespace, логи которых дополнительно пишутся в общий поток _all своей группы k8s/<namespace>:
   # весь namespace одной лентой в панели Логов. Каждый должен быть и в списке namespaces.
@@ -22,6 +27,7 @@ fluent-bit:
     - joinrpg-dev
     - joinrpg-prod
     - bastilia-rating-prod
+    - twilight
 
   kind: DaemonSet
 
