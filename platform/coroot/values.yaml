@@ -205,6 +205,26 @@ spec:
         # Полный отказ приложения ловят SLO и instance-restarts.
         - id: instance-availability
           for: 10m
+        # Счётчик отказов: increase до агрегации учитывает сбросы каждой серии.
+        # Один алерт на под, независимо от числа политик rate limiting.
+        - id: aspnetcore-rate-limiting-rejected
+          name: "ASP.NET Core rate limiting rejected requests"
+          notificationCategory: application
+          selector:
+            type: all
+          source:
+            type: promql
+            promql:
+              expression: >-
+                sum by (namespace, pod) (
+                  increase(aspnetcore_rate_limiting_requests{result="rejected",pod!=""}[5m])
+                ) > 0
+          for: 0s
+          keepFiringFor: 0s
+          severity: warning
+          templates:
+            summary: "ASP.NET Core: под {{.namespace}}/{{.pod}} отклоняет запросы по rate limiting"
+            description: "За последние 5 минут вырос счётчик rejected. Проверить трафик, политики rate limiting и логи приложения."
         # MSSQL: warning >80%/5m уже даёт встроенный storage-space, не дублируем.
         # Следим за файловой системой с данными SQL, а не размером отдельных БД.
         - id: mssql-disk-critical
