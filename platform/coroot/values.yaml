@@ -217,14 +217,13 @@ spec:
             promql:
               expression: >-
                 sum by (namespace, pod) (
-                  increase(aspnetcore_rate_limiting_requests{result="rejected",pod!=""}[5m])
+                  increase(aspnetcore_rate_limiting_requests_total{aspnetcore_rate_limiting_result=~"global_limiter|endpoint_limiter",pod!=""}[5m])
                 ) > 0
-          for: 0s
-          keepFiringFor: 0s
+          # Нулевая задержка — поля опущены: Coroot 1.27.4 отвергает явное 0s.
           severity: warning
           templates:
             summary: "ASP.NET Core: под {{.namespace}}/{{.pod}} отклоняет запросы по rate limiting"
-            description: "За последние 5 минут вырос счётчик rejected. Проверить трафик, политики rate limiting и логи приложения."
+            description: "За последние 5 минут вырос счётчик отказов global_limiter или endpoint_limiter. Проверить трафик, политики rate limiting и логи приложения."
         # MSSQL: warning >80%/5m уже даёт встроенный storage-space, не дублируем.
         # Следим за файловой системой с данными SQL, а не размером отдельных БД.
         - id: mssql-disk-critical
@@ -453,6 +452,8 @@ spec:
       # о деплоях — только категории по умолчанию application (dev выключена явно).
       # Текст собирается через printf и экранируется функцией json (кавычки и переводы строк
       # в сообщениях логов не ломают JSON); parse_mode не задан — без Markdown.
+      # Пустую привязку к приложению не печатаем: у custom PromQL ресурс указан в Summary.
+      # Лимиты printf — в рунах, с запасом под UTF-16 и полный URL в Telegram (4096 единиц).
       notificationIntegrations:
         baseURL: https://coroot.joinrpg.ru
         webhook:
@@ -465,7 +466,7 @@ spec:
           deployments: true
           alertTemplate: >-
             {"text":
-            {{ if eq .Status "OK" }}{{ json (printf "✅ Решено: %s\nПроект: %s\nОбъект: %s/%s\nДлительность: %s\n%s" .RuleName .ProjectName (or .Application.Namespace "—") (or .Application.Name "без привязки") (or .Duration "см. карточку") .URL) }}{{ else }}{{ if and .Details (eq (index .Details 0).Name "Description") }}{{ json (printf "🔥 %s: %s\nПроект: %s\nОбъект: %s/%s\n%s\nЧто проверить: %s\n%s" .Severity .RuleName .ProjectName (or .Application.Namespace "—") (or .Application.Name "без привязки") (printf "%.1600s" .Summary) (printf "%.1200s" (index .Details 0).Value) .URL) }}{{ else }}{{ json (printf "🔥 %s: %s\nПроект: %s\nОбъект: %s/%s\n%s\nПодробности и действия — в карточке.\n%s" .Severity .RuleName .ProjectName (or .Application.Namespace "—") (or .Application.Name "без привязки") (printf "%.1600s" .Summary) .URL) }}{{ end }}{{ end }} }
+            {{ json (printf "%s · %.80s\nПроект: %.64s%s\n\n%.650s%s%s\n%s" (or (and (eq .Status "OK") "✅ Алерт закрыт") (and (eq .Severity "critical") "🚨 Критично") "⚠️ Предупреждение") .RuleName .ProjectName (or (and .Application.Name (printf "\nПриложение: %s%.128s" (or (and .Application.Namespace (printf "%.63s/" .Application.Namespace)) "") .Application.Name)) "") .Summary (or (and (ne .Status "OK") .Details (eq (index .Details 0).Name "Description") (index .Details 0).Value (printf "\n\nЧто проверить: %.450s" (index .Details 0).Value)) "") (or (and (eq .Status "OK") .Duration (printf "\n\nДлительность: %.64s" .Duration)) "") .URL) }} }
           incidentTemplate: >-
             {"text":
             {{ if eq .Status "OK" }}{{ json (printf "✅ Инцидент закрыт: %s/%s\n%s" .Application.Namespace .Application.Name .URL) }}{{ else }}{{ json (printf "🚨 %s: %s/%s не выполняет SLO\n%s" .Status .Application.Namespace .Application.Name .URL) }}{{ end }} }
