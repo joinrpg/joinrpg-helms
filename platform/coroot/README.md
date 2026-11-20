@@ -17,7 +17,7 @@
 | Prometheus | нет — метрики в ClickHouse (`storeMetricsInClickhouse: true`) |
 | PVC (`fast2.ru-6`, `Retain`) | `data-coroot-coroot-0` 5Gi, `data-coroot-clickhouse-shard-0-0` 20Gi, `data-coroot-clickhouse-keeper-0` 2Gi |
 | Хранение | метрики 30d, трейсы 7d, логи 30d, профили 14d (по замерам 2026-11-06 прогноз занятого диска ~8–9 GiB; бюджет с запасом ~10–12 GiB из 20Gi) |
-| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`; `memory-leak` `for: 2h` — прогрев .NET после деплоя; `instance-availability` `for: 10m` — раскатка portal с `maxSurge: 0`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests` (`spec.projects[].alertingRules`) |
+| Алерты | встроенные правила Coroot (у `kubernetes-events` `minCount: 3` — без шума от разовых событий на раскатке; `new-log-patterns`, `network-tcp-connections`, `network-connectivity`, `memory-leak` — только для категории `application`; `network-rtt-external` — только `application` и `for: 15m` — шум внешних фоновых соединений; `memory-leak` `for: 2h` — прогрев .NET после деплоя; `instance-availability` `for: 10m` — раскатка portal с `maxSurge: 0`) + свои `certificate-expiry`, `certificate-not-ready`, `node-cpu-requests`, `cluster-cpu-requests`, `calico-node-unavailable` (`spec.projects[].alertingRules`) |
 | Категории | `control-plane` дополнена шаблонами `_/*` (процессы хоста) и `infra/*` (fluent-bit); `dev` — без уведомлений |
 | Категория `dev` | `kogda-dev/*`, `joinrpg-dev/*` — только в интерфейсе, без уведомлений |
 | SLO latency | prod `joinrpg-portal`, `joinrpg-idportal` — 95% быстрее 1 с (длинные соединения Blazor); `kogda-prod` и `kogda-dev` — 95% / 1 с (G156); у `coroot-sql-probes` latency objective 0%, контроль БД — отдельными SQL-алертами |
@@ -340,7 +340,8 @@ DNS/TLS/сеть или отказ upstream. Пробы могут остава�
 | `dbaas-disk-warning` | Диск каждой ноды Kaitlyn занят >80% | 15m | warning |
 | `dbaas-disk-critical` | Диск каждой ноды Kaitlyn занят >90% | 5m | critical |
 | `dbaas-metrics-missing` | `up` прокси =0 либо за 5m есть метрики диска менее двух нод | 2m | critical |
-| `dbaas-pgbouncer-queue` | В одной БД одной ноды есть ожидающие клиенты и maxwait >5s | 5m | warning |
+| `dbaas-pgbouncer-queue` | В одной БД одной ноды есть ожидающие клиенты и maxwait >5s | 1m | warning |
+| `dbaas-no-master` | У ноды Kaitlyn `dbaas_role=0` (роль неизвестна) либо нет рядов ролей за 5m | 1m | warning |
 
 MSSQL warning уже встроен в Coroot 1.27.4 (порог 80%, `for: 5m`), поэтому
 новое предупреждение 80%/15m не добавляется: это дало бы дубль. Встроенное правило
@@ -360,6 +361,17 @@ DBaaS обнаруживается быстрее — после 2m выдерж
 за первые 35 минут сбора waiting и maxwait были нулевыми. После рабочего пика
 порог можно пересмотреть. При отсутствии метрик очереди правило молчит — потерю
 сбора проверяет отдельное правило выше.
+
+`dbaas-no-master` добавлен после failover 19.11.2026: старый мастер 3,5 минуты имел
+`dbaas_role=0` до переключения на реплику. Роли: 0 — неизвестна, 1 — мастер, 2 — реплика.
+Выдержка `dbaas-pgbouncer-queue` снижена до 1m: очередь при failover держалась ~2 минуты
+и с `for: 5m` не была поймана. При полном отсутствии рядов `dbaas_role` ветка
+`absent_over_time` срабатывает без меток ноды — потерю сбора деталирует `dbaas-metrics-missing`.
+
+`calico-node-unavailable` (`kube_daemonset_status_number_unavailable > 0`, `for: 5m`) —
+устойчивый сигнал недоступности CNI. Стартовые события rolling restart (`bird.ctl`,
+BGP, `FailedPreStopHook`) встроенный `kubernetes-events` не фильтрует: `for` к нему
+не применяется, `minCount`/`keepFiringFor` шум не устраняют (разбор 20.11.2026).
 
 Эти алерты не доказывают SQL-доступность, не определяют причину сбоя и не заменяют
 внешний мониторинг самого Coroot: если Coroot остановится, он не сможет отправить
@@ -429,6 +441,11 @@ TLS шифруется, но CA/hostname не проверяются: PostgreSQL
 ловят `up=0` в течение2m либо отсутствие результата SELECT1 за3m с выдержкой ещё2m.
 Пустые метрики не трактуются как успех. Эти пробы не проверяют другие базы, права
 пользователей приложений, запись или реальные бизнес-запросы.
+
+При срабатывании `postgres-sql-probe` первым шагом проверить failover DBaaS
+(`dbaas_role` обеих нод Kaitlyn, алерт `dbaas-no-master`), а не учётку `coroot_probe`:
+19.11.2026 проба падала из-за недоступности старого мастера и восстановилась
+после переключения с той же учёткой.
 
 Применение в WSL из корня репозитория; Secret не печатается и не записывается на диск:
 
