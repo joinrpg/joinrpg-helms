@@ -193,6 +193,15 @@ spec:
             type: category
             categories:
               - application
+        # for 5m → 15m и только приложения: всплески RTT до внешних фоновых соединений
+        # (ghcr.io у coroot-operator, телеметрия Microsoft у mssql2019) 19–20.11 были шумом
+        # без влияния на сервисы. Порог 200ms не меняем: для внешних БД приложений он полезен.
+        - id: network-rtt-external
+          for: 15m
+          selector:
+            type: category
+            categories:
+              - application
         # for 15m → 2h: .NET (portal, idportal, componentbook) после деплоя 30–70 мин
         # набирает память — прогрев, а не утечка; алерт гас сам через 15–50 мин.
         - id: memory-leak
@@ -307,10 +316,12 @@ spec:
                 (max by (ds_id, ds_name, ip, datname) (
                   dbaas_pgbouncer_pools_client_maxwait_seconds{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}
                 ) > 5)
-          for: 5m
+          # for 5m → 1m: при failover 19.11 очередь (11 клиентов, maxwait до 115 с)
+          # держалась ~2 минуты и не была поймана.
+          for: 1m
           severity: warning
           templates:
-            summary: "PostgreSQL {{.ds_name}}, {{.ip}}, БД {{.datname}}: очередь PgBouncer с ожиданием более 5 секунд сохраняется 5 минут"
+            summary: "PostgreSQL {{.ds_name}}, {{.ip}}, БД {{.datname}}: очередь PgBouncer с ожиданием более 5 секунд сохраняется минуту"
             description: "Проверить активные/ожидающие соединения пулера, лимиты пула, долгие транзакции и блокировки PostgreSQL. Не увеличивать пул без проверки ресурсов БД."
         - id: dbaas-metrics-missing
           name: "PostgreSQL DBaaS metrics missing"
@@ -329,6 +340,41 @@ spec:
           templates:
             summary: "PostgreSQL Kaitlyn: ошибка сбора или нет метрик одной из двух нод"
             description: "Ошибка scrape сохраняется 2 минуты либо за 5 минут есть данные менее двух нод и условие держится ещё 2 минуты. Проверить coroot-dbaas-metrics, токен, DNS/TLS и API Selectel. Две ноды — ожидаемый состав Kaitlyn; при изменении состава обновить правило. Это не проверка SQL-доступности."
+        # Failover 19.11: старый мастер 3,5 минуты имел dbaas_role=0 до переключения
+        # на реплику; раньше это было видно только по последствиям (server_login_retry).
+        - id: dbaas-no-master
+          name: "PostgreSQL DBaaS no master"
+          notificationCategory: application
+          selector:
+            type: all
+          source:
+            type: promql
+            promql:
+              expression: >-
+                max by (ds_id, ds_name, ip) (dbaas_role{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"} == 0)
+                or max(absent_over_time(dbaas_role{ds_id="4b8029b8-1433-4452-b2e3-e171e7212ec6"}[5m]))
+          for: 1m
+          severity: warning
+          templates:
+            summary: "PostgreSQL {{.ds_name}}: нода {{.ip}} без роли (dbaas_role=0) или нет данных о ролях"
+            description: "Возможен failover DBaaS: проверить dbaas_role обеих нод (0 — неизвестна, 1 — мастер, 2 — реплика), события Selectel и SQL-пробы. Ветка absent_over_time срабатывает при полном отсутствии рядов 5 минут и не имеет меток ноды; потерю сбора контролирует dbaas-metrics-missing."
+        # Стартовые CNI-события (bird.ctl, BGP, FailedPreStopHook) на rolling restart —
+        # шум, который kubernetes-events не фильтрует. Это правило — устойчивый сигнал.
+        - id: calico-node-unavailable
+          name: "Calico node DaemonSet unavailable"
+          notificationCategory: application
+          selector:
+            type: all
+          source:
+            type: promql
+            promql:
+              expression: >-
+                max(kube_daemonset_status_number_unavailable{namespace="kube-system",daemonset="calico-node"}) > 0
+          for: 5m
+          severity: warning
+          templates:
+            summary: "Calico: у DaemonSet calico-node есть недоступные поды более 5 минут"
+            description: "Проверить поды calico-node на нодах, BGP-пиринг и события kube-system. Короткие rolling restart (обслуживание Selectel) правило не ловит — только устойчивую недоступность."
         - id: mssql-sql-probe
           name: "MSSQL SQL probe"
           notificationCategory: application
